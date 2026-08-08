@@ -50,25 +50,26 @@ FOLDER_ID = "1qclCDO_KL7io9tbYMqsSWrlOKn6aqA59"
 RSS_URL = "https://www.inoreader.com/stream/user/1003745790/tag/user-favorites"
 
 def authenticate_google():
-    if not CREDS_JSON:
-        print("Ошибка: Секрет GDRIVE_CREDENTIALS пуст в GitHub Secrets!")
+    creds_json = os.environ.get("GDRIVE_CREDENTIALS")
+    
+    if not creds_json:
+        print("КРИТИЧЕСКАЯ ОШИБКА: Переменная GDRIVE_CREDENTIALS не передана в код!")
         return None, None
-        
+    
+    # Проверка структуры JSON (не выводим данные, просто проверяем длину)
+    print(f"Секрет получен, длина JSON: {len(creds_json)} символов.")
+    
     try:
-        # Парсим JSON
-        creds_info = json.loads(CREDS_JSON)
-        # Создаем учетные данные
+        creds_info = json.loads(creds_json)
         scopes = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/documents']
         creds = service_account.Credentials.from_service_account_info(creds_info, scopes=scopes)
         
-        # ВАЖНО: мы явно передаем credentials=creds в build()
         drive_service = build('drive', 'v3', credentials=creds)
         docs_service = build('docs', 'v1', credentials=creds)
-        
-        print("Успешная аутентификация в Google Services.")
+        print("Аутентификация успешно создана.")
         return drive_service, docs_service
     except Exception as e:
-        print(f"Критическая ошибка аутентификации: {e}")
+        print(f"Ошибка парсинга JSON или создания сервиса: {e}")
         return None, None
 
 def create_google_doc(drive_service, docs_service, title, content):
