@@ -52,54 +52,43 @@ def create_google_doc(drive_service, docs_service, title, content):
     doc_id = doc.get('id')
     
     # Записываем сгенерированный текст в документ
-    requests = [{'insertText': {'location': {'index': 1}, 'text': content}}]
-    docs_service.documents().batchUpdate(documentId=doc_id, body={'requests': requests}).execute()
-    print(f"Документ '{title}' успешно сохранен на Диске!")
+def check_file_exists(drive_service, title):
+    query = f"name = '{title.replace("'", "\\'")}' and '{FOLDER_ID}' in parents and trashed = false"
+    results = drive_service.files().list(q=query, fields='files(id, name)').execute()
+    return len(results.get('files', [])) > 0
 
 def main():
     print("Запуск конвейера новостей...")
     
     drive_service, docs_service = authenticate_google()
-    if not drive_service:
-        return
+    if not drive_service: return
         
     feed = feedparser.parse(RSS_URL)
-    if not feed.entries:
-        print("Новых статей в Inoreader пока нет.")
-        return
+    if not feed.entries: return
 
-    print(f"Найдено новостей для обработки: {len(feed.entries)}\n")
-    
-    # Счетчик для того, чтобы не превысить лимит в 20 запросов/день
-    counter = 0
+    print(f"Найдено новостей: {len(feed.entries)}")
+
     for article in feed.entries:
-        if counter >= 2: # Обрабатываем только по 2 новости за 1 запуск (чтобы укладываться в лимиты)
-            print("Лимит запросов на этот запуск достигнут.")
-            break
-            
         title = article.title
-        description = article.get('description', '')
-        
-        print(f"Обрабатываю новость: {title}")
-        prompt = f"{SYSTEM_PROMPT}\n\nНовость для обработки:\nЗаголовок: {title}\nТекст: {description}"
+        # Проверяем, есть ли уже такой документ
+        if check_file_exists(drive_service, title):
+            print(f"Пропускаю (уже есть на Диске): {title}")
+            continue
+            
+        print(f"Обрабатываю: {title}")
+        prompt = f"Твоя роль: экспертный игровой журналист и контент-мейкер. Задача: Напиши максимально развернутый, глубокий и подробный лонгрид для ВКонтакте, детально анализируя каждый аспект новости. Правила: - Придумай мощный SEO-заголовок под конкретные поисковые запросы геймеров. - Поскольку стандартное разделение на абзацы и жирный шрифт недоступны, активно и структурированно используй эмодзи для визуального разделения логических блоков, списков и выделения важных мыслей. Эмодзи — твой единственный инструмент форматирования текста. - Текст должен быть без воды, написан живым языком. - В самом конце текста, с новой строки, обязательно напиши 7-8 релевантных хештега для ВК. Первым и обязательным всегда должен стоять тег #LevelupNews. Новость: {title}. Текст: {article.get('description', '')}"
         
         try:
             response = client.models.generate_content(
-                model='gemini-1.5-flash', # Исправлено название модели
+                model='gemini-1.5-flash',
                 contents=prompt
             )
-            print("Пост сгенерирован, переносим в Google Документ...")
             create_google_doc(drive_service, docs_service, title, response.text)
-            counter += 1
-            
+            print("Успех!")
+            time.sleep(15) # Пауза чтобы не ловить ошибки API
         except Exception as e:
-            print(f"Ошибка при обработке {title}: {e}")
-            if "429" in str(e): 
-                print("Достигнут лимит API, останавливаюсь.")
-                break
-        
-        print("Пауза 15 секунд...\n")
-        time.sleep(15) # Увеличили паузу, чтобы API Диска не "ругалось"
+            print(f"Ошибка: {e}")
+            if "429" in str(e): break # Останавливаемся, если лимит исчерпан
 
     print("Все новости успешно обработаны!")
 
