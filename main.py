@@ -1,18 +1,15 @@
 import os
 import feedparser
-import google.generativeai as genai
+from google import genai
 
-# 1. Подключаемся к Gemini через спрятанный секретный ключ
+# 1. Подключаемся к Gemini через новый клиент
 API_KEY = os.environ.get("GEMINI_API_KEY")
-genai.configure(api_key=API_KEY)
-
-# Используем самую мощную модель для максимального качества текста
-model = genai.GenerativeModel('gemini-1.5-pro')
+client = genai.Client(api_key=API_KEY)
 
 # 2. ВСТАВЬ СВОЮ ССЫЛКУ ИЗ INOREADER МЕЖДУ КАВЫЧКАМИ НИЖЕ:
 RSS_URL = "https://www.inoreader.com/stream/user/1003745790/tag/user-favorites"
 
-# 3. Наш обновленный жесткий системный промпт (инструкция)
+# 3. Наш жесткий системный промпт (инструкция)
 SYSTEM_PROMPT = """
 Твоя роль: экспертный игровой журналист и контент-мейкер.
 Задача: Напиши качественный пост для ВКонтакте по предоставленной новости.
@@ -26,14 +23,12 @@ SYSTEM_PROMPT = """
 def main():
     print("Запуск конвейера новостей...")
     
-    # Читаем ленту Inoreader
     feed = feedparser.parse(RSS_URL)
     
     if not feed.entries:
         print("Новых статей в Inoreader пока нет.")
         return
 
-    # Берем самую свежую новость
     latest_article = feed.entries[0]
     title = latest_article.title
     description = latest_article.get('description', '')
@@ -41,10 +36,13 @@ def main():
     print(f"Найдена новость: {title}")
     print("Передаю на обработку...")
 
-    # Отправляем задачу нейросети
     prompt = f"{SYSTEM_PROMPT}\n\nНовость для обработки:\nЗаголовок: {title}\nТекст: {description}"
     
-    response = model.generate_content(prompt)
+    # Отправляем задачу через новую библиотеку
+    response = client.models.generate_content(
+        model='gemini-2.5-pro',
+        contents=prompt
+    )
     
     print("\n--- ГОТОВЫЙ ПОСТ ---")
     print(response.text)
