@@ -23,4 +23,5 @@ jobs:
       - name: Run main script
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
         run: python main.py
