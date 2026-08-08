@@ -27,9 +27,9 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
 
-      - name: Commit files
+            - name: Commit files
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
           git add .
-          git diff --quiet && git diff --staged --quiet || (git commit -m "Update news posts" && git push)
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update news posts" && git pull --rebase origin main && git push)
