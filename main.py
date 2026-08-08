@@ -69,8 +69,14 @@ def main():
         return
 
     print(f"Найдено новостей для обработки: {len(feed.entries)}\n")
-
+    
+    # Счетчик для того, чтобы не превысить лимит в 20 запросов/день
+    counter = 0
     for article in feed.entries:
+        if counter >= 2: # Обрабатываем только по 2 новости за 1 запуск (чтобы укладываться в лимиты)
+            print("Лимит запросов на этот запуск достигнут.")
+            break
+            
         title = article.title
         description = article.get('description', '')
         
@@ -79,17 +85,21 @@ def main():
         
         try:
             response = client.models.generate_content(
-                model='gemini-3.5-flash',
+                model='gemini-1.5-flash', # Исправлено название модели
                 contents=prompt
             )
             print("Пост сгенерирован, переносим в Google Документ...")
             create_google_doc(drive_service, docs_service, title, response.text)
+            counter += 1
             
         except Exception as e:
             print(f"Ошибка при обработке {title}: {e}")
+            if "429" in str(e): 
+                print("Достигнут лимит API, останавливаюсь.")
+                break
         
-        print("Пауза 10 секунд...\n")
-        time.sleep(10)
+        print("Пауза 15 секунд...\n")
+        time.sleep(15) # Увеличили паузу, чтобы API Диска не "ругалось"
 
     print("Все новости успешно обработаны!")
 
