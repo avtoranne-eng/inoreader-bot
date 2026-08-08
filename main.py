@@ -99,10 +99,12 @@ def main():
     count = 0
 
     for article in feed.entries:
+        title = article.title
+        
         if count >= 3: break # За 1 запуск обрабатываем не более 3х новостей, чтобы не спамить
         
-        if article.title in processed_titles:
-            print(f"Пропускаю (уже было): {article.title}")
+        if check_file_exists(drive_service, title):
+            print(f"Пропускаю (уже было): {title}")
             continue
             
         print(f"Обрабатываю: {title}")
