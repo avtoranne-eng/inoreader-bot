@@ -1,7 +1,7 @@
 import os
-import io
 import time
 import json
+import io
 import feedparser
 from google import genai
 from google.oauth2 import service_account
@@ -74,7 +74,8 @@ def create_google_doc(drive_service, docs_service, title, content):
     
     # Записываем сгенерированный текст в документ
 def check_file_exists(drive_service, title):
-    query = f"name = '{title.replace("'", "\\'")}' and '{FOLDER_ID}' in parents and trashed = false"
+    # Используем одинарные кавычки внутри, чтобы не ломать структуру
+    query = f"name = '{title.replace('\'', '\\\'')}' and '{FOLDER_ID}' in parents and trashed = false"
     results = drive_service.files().list(q=query, fields='files(id, name)').execute()
     return len(results.get('files', [])) > 0
 
