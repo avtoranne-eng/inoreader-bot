@@ -1,13 +1,15 @@
 import os
 import time
 import feedparser
-from openai import OpenAI
+import google.generativeai as genai
 
-# Настройка клиента для Groq
-client = OpenAI(
-    api_key=os.environ.get("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1"
-)
+# Настройка клиента для Gemini
+API_KEY = os.environ.get("GEMINI_API_KEY")
+genai.configure(api_key=API_KEY)
+
+# Твоя модель
+MODEL_NAME = "gemini-3.5-flash-lite"
+model = genai.GenerativeModel(MODEL_NAME)
 
 RSS_URL = "https://www.inoreader.com/stream/user/1003745790/tag/user-favorites"
 PROCESSED_FILE = "processed.txt"
@@ -35,29 +37,26 @@ def main():
         if title in processed: continue
             
         print(f"Обрабатываю: {title}")
-        # Очищаем заголовок от запрещенных символов для имени файла
-        safe_filename = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+        safe_filename = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()[:50]
         
+        # Твой оригинальный промпт
         prompt = f"Твоя роль: экспертный игровой журналист и контент-мейкер. Задача: Напиши максимально развернутый, глубокий и подробный лонгрид для ВКонтакте, детально анализируя каждый аспект новости. Правила: - Придумай мощный SEO-заголовок под конкретные поисковые запросы геймеров. - Поскольку стандартное разделение на абзацы и жирный шрифт недоступны, активно и структурированно используй эмодзи для визуального разделения логических блоков, списков и выделения важных мыслей. Эмодзи — твой единственный инструмент форматирования текста. - Текст должен быть без воды, написан живым языком. - В самом конце текста, с новой строки, обязательно напиши 7-8 релевантных хештега для ВК. Первым и обязательным всегда должен стоять тег #LevelupNews. Новость: {title}. Текст: {article.get('description', '')}"
         
         try:
-            response = client.models.generate_content(
-                model='gemini-3.5-flash-lite',
-                contents=prompt
-            )
-            response_text = chat_completion.choices[0].message.content
+            # Генерация через модель Gemini
+            response = model.generate_content(prompt)
             
             # Сохраняем в файл
             with open(f"{POSTS_DIR}/{safe_filename}.md", "w", encoding="utf-8") as f:
-                f.write(response_text)
+                f.write(response.text)
             
             add_to_processed_list(title)
             print("Успех!")
             count += 1
-            if count >= 3: break # Больше 3 за раз не берем
-            time.sleep(10)
+            if count >= 3: break 
+            time.sleep(15)
         except Exception as e:
-            print(f"Ошибка: {e}")
+            print(f"Ошибка при работе с Gemini: {e}")
             break
 
 if __name__ == "__main__":
