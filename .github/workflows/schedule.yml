@@ -1,15 +1,17 @@
 name: Auto-Poster
 on:
   schedule:
-    # Запуск каждый день в 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00 и 22:00 по UTC
-    - cron: '0 8,10,12,14,16,18,20,22 * * *'
-  workflow_dispatch: # Позволяет нам запускать скрипт вручную для тестов
+    - cron: '0 8-22/2 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   run-script:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v3
 
       - name: Set up Python
@@ -18,10 +20,16 @@ jobs:
           python-version: '3.10'
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
-
+        run: pip install openai feedparser
+      
       - name: Run main script
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GDRIVE_CREDENTIALS: ${{ secrets.GDRIVE_CREDENTIALS }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python main.py
+
+      - name: Commit files
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add .
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Update news posts" && git push)
