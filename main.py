@@ -1,10 +1,42 @@
 import os
+import io
 import time
 import json
 import feedparser
 from google import genai
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
+
+def get_processed_titles(drive_service):
+    # Ищем файл processed.txt в нашей папке
+    query = f"name = 'processed.txt' and '{FOLDER_ID}' in parents and trashed = false"
+    results = drive_service.files().list(q=query, fields='files(id)').execute()
+    files = results.get('files', [])
+    
+    if not files:
+        return [] # Файла еще нет, список пуст
+    
+    file_id = files[0]['id']
+    content = drive_service.files().get_media(fileId=file_id).execute().decode('utf-8')
+    return content.splitlines()
+
+def add_to_processed_list(drive_service, title):
+    # Ищем файл, чтобы получить его ID
+    query = f"name = 'processed.txt' and '{FOLDER_ID}' in parents and trashed = false"
+    results = drive_service.files().list(q=query, fields='files(id)').execute()
+    files = results.get('files', [])
+    
+    # Если файла нет — создаем его
+    if not files:
+        file_metadata = {'name': 'processed.txt', 'parents': [FOLDER_ID]}
+        file = drive_service.files().create(body=file_metadata, media_body=io.BytesIO(title.encode('utf-8'))).execute()
+    else:
+        file_id = files[0]['id']
+        # Читаем старый контент
+        old_content = drive_service.files().get_media(fileId=file_id).execute().decode('utf-8')
+        new_content = old_content + "\n" + title
+        # Обновляем файл
+        drive_service.files().update(fileId=file_id, media_body=io.BytesIO(new_content.encode('utf-8'))).execute()
 
 # 1. Подключаемся к Gemini
 API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -16,17 +48,6 @@ FOLDER_ID = "1qclCDO_KL7io9tbYMqsSWrlOKn6aqA59"
 
 # 3. ВСТАВЬ СВОЮ ССЫЛКУ ИЗ INOREADER МЕЖДУ КАВЫЧКАМИ НИЖЕ:
 RSS_URL = "https://www.inoreader.com/stream/user/1003745790/tag/user-favorites"
-
-# 4. Наш жесткий системный промпт (инструкция)
-SYSTEM_PROMPT = """
-Твоя роль: экспертный игровой журналист и контент-мейкер.
-Задача: Напиши максимально развернутый, глубокий и подробный лонгрид для ВКонтакте, детально анализируя каждый аспект новости.
-Правила:
-- Придумай мощный SEO-заголовок под конкретные поисковые запросы геймеров.
-- Поскольку стандартное разделение на абзацы и жирный шрифт недоступны, активно и структурированно используй эмодзи для визуального разделения логических блоков, списков и выделения важных мыслей. Эмодзи — твой единственный инструмент форматирования текста.
-- Текст должен быть без воды, написан живым языком.
-- В самом конце текста, с новой строки, обязательно напиши 7-8 релевантных хештега для ВК. Первым и обязательным всегда должен стоять тег #LevelupNews.
-"""
 
 def authenticate_google():
     if not CREDS_JSON:
@@ -66,13 +87,18 @@ def main():
     feed = feedparser.parse(RSS_URL)
     if not feed.entries: return
 
-    print(f"Найдено новостей: {len(feed.entries)}")
+    # Получаем список того, что уже было сделано
+    processed_titles = get_processed_titles(drive_service)
+    
+    print(f"Найдено новостей в RSS: {len(feed.entries)}")
+    
+    count = 0
 
     for article in feed.entries:
-        title = article.title
-        # Проверяем, есть ли уже такой документ
-        if check_file_exists(drive_service, title):
-            print(f"Пропускаю (уже есть на Диске): {title}")
+        if count >= 3: break # За 1 запуск обрабатываем не более 3х новостей, чтобы не спамить
+        
+        if article.title in processed_titles:
+            print(f"Пропускаю (уже было): {article.title}")
             continue
             
         print(f"Обрабатываю: {title}")
@@ -83,12 +109,16 @@ def main():
                 model='gemini-1.5-flash',
                 contents=prompt
             )
-            create_google_doc(drive_service, docs_service, title, response.text)
-            print("Успех!")
-            time.sleep(15) # Пауза чтобы не ловить ошибки API
+            create_google_doc(drive_service, docs_service, article.title, response.text)
+            
+            # Записываем в лог, что успешно обработали
+            add_to_processed_list(drive_service, article.title)
+            
+            count += 1
+            time.sleep(15) 
         except Exception as e:
-            print(f"Ошибка: {e}")
-            if "429" in str(e): break # Останавливаемся, если лимит исчерпан
+            print(f"Ошибка при обработке {article.title}: {e}")
+            if "429" in str(e): break
 
     print("Все новости успешно обработаны!")
 
