@@ -29,25 +29,35 @@ def main():
         print("Новых статей в Inoreader пока нет.")
         return
 
-    latest_article = feed.entries[0]
-    title = latest_article.title
-    description = latest_article.get('description', '')
-    
-    print(f"Найдена новость: {title}")
-    print("Передаю на обработку...")
+    print(f"Найдено новостей для обработки: {len(feed.entries)}\n")
 
-    prompt = f"{SYSTEM_PROMPT}\n\nНовость для обработки:\nЗаголовок: {title}\nТекст: {description}"
-    
-    # Отправляем задачу через новую библиотеку
-    response = client.models.generate_content(
-        model='gemini-3.5-flash',
-        contents=prompt
-    )
-    
-    print("\n--- ГОТОВЫЙ ПОСТ ---")
-    print(response.text)
-    print("--------------------")
-    print("Задача выполнена успешно!")
+    # ЗАПУСКАЕМ ЦИКЛ ДЛЯ КАЖДОЙ НОВОСТИ
+    for article in feed.entries:
+        title = article.title
+        description = article.get('description', '')
+        
+        print(f"Обрабатываю новость: {title}")
+
+        prompt = f"{SYSTEM_PROMPT}\n\nНовость для обработки:\nЗаголовок: {title}\nТекст: {description}"
+        
+        try:
+            # Отправляем задачу нейросети (модель Flash)
+            response = client.models.generate_content(
+                model='gemini-3.5-flash',
+                contents=prompt
+            )
+            
+            print("\n--- ГОТОВЫЙ ПОСТ ---")
+            print(response.text)
+            print("--------------------\n")
+        except Exception as e:
+            print(f"Ошибка при обработке {title}: {e}")
+        
+        # Делаем паузу 10 секунд перед следующей новостью, чтобы не превысить лимиты API
+        print("Пауза 10 секунд для защиты от лимитов Google...")
+        time.sleep(10)
+
+    print("Все новости из Inoreader успешно обработаны!")
 
 if __name__ == "__main__":
     main()
