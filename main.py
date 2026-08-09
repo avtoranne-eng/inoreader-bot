@@ -30,18 +30,17 @@ def add_to_processed_list(title):
 def main():
     feed = feedparser.parse(RSS_URL)
     processed = get_processed_titles()
-    
+
     count = 0
     for article in feed.entries:
         title = article.title
         if title in processed: continue
-            
+
         print(f"Обрабатываю: {title}")
         safe_filename = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()[:50]
-        
-        # Твой оригинальный промпт
-        # Обновленный промпт с правилами грамматики
-                prompt = (
+
+        # Строгий пошаговый промпт с правильными отступами
+        prompt = (
             f"Твоя роль: экспертный игровой журналист, контент-мейкер и строгий литературный редактор. "
             f"Твоя задача: написать развернутый лонгрид для ВКонтакте по новости. "
             f"Пиши пост строго по этому шаблону:\n\n"
@@ -51,15 +50,15 @@ def main():
             f"4. КОНЦОВКА: Напиши живой призыв к комментариям. Затем, с новой строки, добавь 7-8 хештегов (первый обязательно #LevelupNews).\n\n"
             f"Новость: {title}. Текст: {article.get('description', '')}"
         )
-        
+
         try:
             # Генерация через модель Gemini
             response = model.generate_content(prompt)
-            
+
             # Сохраняем в файл
             with open(f"{POSTS_DIR}/{safe_filename}.md", "w", encoding="utf-8") as f:
                 f.write(response.text)
-            
+
             add_to_processed_list(title)
             print("Успех!")
             count += 1
