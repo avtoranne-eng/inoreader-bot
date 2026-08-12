@@ -1,8 +1,6 @@
 name: Sims Mod Downloader
 
 on:
-  schedule:
-    - cron: '0 * * * *' # Запускается каждый час (в 00 минут)
   workflow_dispatch:
 
 permissions:
