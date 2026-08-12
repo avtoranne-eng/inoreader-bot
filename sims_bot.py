@@ -8,7 +8,6 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 # Твой шикарный список всех разделов сайта
 CATEGORY_URLS = [
-    "https://sims4pack.ru/tags/cas-i-ekran-zagruzki/",
     "https://sims4pack.ru/tags/aksessuary/",
     "https://sims4pack.ru/tags/vnesnost/",
     "https://sims4pack.ru/tags/gameplay/",
@@ -92,14 +91,33 @@ def main():
                 mod_page = requests.get(link, headers=HEADERS)
                 mod_soup = BeautifulSoup(mod_page.text, 'html.parser')
                 
-                # Достаем название и картинку
+                # Достаем название
                 title_tag = mod_soup.find('h1')
                 title = title_tag.text.strip() if title_tag else "Мод для The Sims 4"
                 
-                img_tag = mod_soup.find('img')
-                img_url = img_tag['src'] if img_tag else None
+                # --- УМНЫЙ ПОИСК ПРАВИЛЬНОЙ КАРТИНКИ ---
+                img_url = None
+                
+                # Шаг 1: Ищем мета-тег превью (самый точный способ для соцсетей)
+                og_img = mod_soup.find('meta', property='og:image')
+                if og_img and og_img.get('content'):
+                    img_url = og_img['content']
+                
+                # Шаг 2: Если мета-тега нет, берем первую картинку СТРОГО ПОСЛЕ заголовка (пропуская шапку сайта)
+                if not img_url and title_tag:
+                    next_img = title_tag.find_next('img')
+                    if next_img and next_img.get('src'):
+                        img_url = next_img['src']
+                
+                # Шаг 3: Запасной вариант
+                if not img_url:
+                    img_tag = mod_soup.find('img')
+                    img_url = img_tag['src'] if img_tag else None
+
+                # Добавляем домен, если ссылка короткая
                 if img_url and not img_url.startswith('http'):
                     img_url = f"https://sims4pack.ru{img_url}"
+                # ---------------------------------------
 
                 # Ищем ссылку на скачивание файла
                 download_link = None
