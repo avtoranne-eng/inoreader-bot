@@ -57,6 +57,13 @@ def main():
         return
 
     processed = get_processed()
+    count = 0
+    
+    # Бот по очереди проверяет каждый раздел из списка
+    for category in CATEGORY_URLS:
+        if count >= 10: # Общий лимит за один запуск
+            break
+            
     response = requests.get(CATEGORY_URL, headers=HEADERS)
     soup = BeautifulSoup(response.text, 'html.parser')
 
