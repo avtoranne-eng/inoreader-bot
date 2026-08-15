@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
 API_KEY = os.environ.get("GEMINI_API_KEY")
-VK_TOKEN = os.environ.get("VK_TOKEN") # Используй обычный ключ группы!
+VK_TOKEN = os.environ.get("VK_TOKEN") # Обычный ключ группы
 
 RAW_VK_GROUP_ID = str(os.environ.get("VK_GROUP_ID", ""))
 VK_GROUP_ID = ''.join(filter(str.isdigit, RAW_VK_GROUP_ID))
@@ -28,13 +28,55 @@ def add_to_processed_list(title):
     with open(PROCESSED_FILE, "a", encoding="utf-8") as f:
         f.write(title + "\n")
 
-def post_to_vk_scheduled(text, article_link, post_index):
+def extract_image_url(article):
+    """Ищем картинку, чтобы вывести ссылку в лог для ручного скачивания"""
+    image_url = None
+    
+    if 'media_content' in article and len(article.media_content) > 0:
+        for media in article.media_content:
+            if 'url' in media: 
+                image_url = media['url']
+                break
+                
+    if not image_url and 'links' in article:
+        for link in article.links:
+            if 'image' in link.get('type', ''): 
+                image_url = link.href
+                break
+                
+    if not image_url and 'description' in article:
+        soup = BeautifulSoup(article.description, 'html.parser')
+        for img in soup.find_all('img'):
+            src = img.get('src', '')
+            if not src: continue
+            src_lower = src.lower()
+            if any(bad in src_lower for bad in ['logo', 'icon', 'avatar', 'pixel', 'tracker', 'button']): continue
+            if img.get('width') == '1' or img.get('height') == '1': continue
+            image_url = src
+            break
+
+    if not image_url and hasattr(article, 'link'):
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
+            resp = requests.get(article.link, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                og_img = soup.find('meta', property='og:image') or soup.find('meta', attrs={'name': 'twitter:image'})
+                if og_img and og_img.get('content'):
+                    image_url = og_img['content']
+        except Exception:
+            pass
+
+    return image_url
+
+def post_to_vk_scheduled(text, post_index):
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
-    # --- ТВОИ НАСТРОЙКИ ВРЕМЕНИ (Всё на месте!) ---
-    START_DELAY_HOURS = 24  # Первый пост улетит на завтра
-    GAP_BETWEEN_POSTS = 0.5 # Разница ровно 30 минут
-    # ----------------------------------------------
+    START_DELAY_HOURS = 24 
+    GAP_BETWEEN_POSTS = 0.5 
 
     offset_hours = START_DELAY_HOURS + (post_index * GAP_BETWEEN_POSTS) 
     publish_time = int(time.time()) + int(offset_hours * 3600) 
@@ -44,7 +86,6 @@ def post_to_vk_scheduled(text, article_link, post_index):
         "owner_id": f"-{VK_GROUP_ID}",
         "message": text,
         "publish_date": publish_time,
-        "attachments": article_link, # 👈 Отдаем ВК ссылку, он сам вытянет обложку!
         "access_token": VK_TOKEN,
         "v": VK_API_VERSION
     }
@@ -78,11 +119,15 @@ def main():
             response = model.generate_content(prompt)
             generated_text = response.text
             
-            # Берем оригинальную ссылку на новость из Raindrop
-            article_link = article.link
+            # Находим картинку и выводим ссылку в консоль
+            image_url = extract_image_url(article)
+            if image_url:
+                print(f"🖼 ССЫЛКА НА КАРТИНКУ ДЛЯ СКАЧИВАНИЯ: {image_url}")
+            else:
+                print("⚠️ Картинку найти не удалось.")
             
-            # Отправляем текст и ссылку в ВК
-            success = post_to_vk_scheduled(generated_text, article_link, count)
+            # Публикуем текст в отложку
+            success = post_to_vk_scheduled(generated_text, count)
             
             if success:
                 add_to_processed_list(title)
