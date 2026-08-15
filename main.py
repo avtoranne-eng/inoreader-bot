@@ -9,7 +9,6 @@ from bs4 import BeautifulSoup
 API_KEY = os.environ.get("GEMINI_API_KEY")
 VK_TOKEN = os.environ.get("VK_TOKEN")
 
-# Очистка ID группы от букв и лишних символов
 RAW_VK_GROUP_ID = str(os.environ.get("VK_GROUP_ID", ""))
 VK_GROUP_ID = ''.join(filter(str.isdigit, RAW_VK_GROUP_ID))
 
@@ -30,7 +29,6 @@ def add_to_processed_list(title):
         f.write(title + "\n")
 
 def extract_image_url(article):
-    """Умный поиск обложки: сначала в RSS, затем на сайте-источнике"""
     image_url = None
     
     if 'media_content' in article and len(article.media_content) > 0:
@@ -56,7 +54,6 @@ def extract_image_url(article):
             image_url = src
             break
 
-    # Идем на сайт, притворяясь настоящим человеком
     if not image_url and hasattr(article, 'link'):
         try:
             print(f"🔍 Ищу картинку на сайте: {article.link}")
@@ -88,15 +85,14 @@ def upload_photo_to_vk(image_url):
             print(f"❌ Не удалось скачать картинку (Код {img_response.status_code})")
             return None
         
-        # 1. Получаем сервер
         server_url = f"https://api.vk.com/method/photos.getWallUploadServer?group_id={VK_GROUP_ID}&access_token={VK_TOKEN}&v={VK_API_VERSION}"
-        upload_url = requests.get(server_url).json().get('response', {}).get('upload_url')
+        server_resp = requests.get(server_url).json()
+        upload_url = server_resp.get('response', {}).get('upload_url')
         
         if not upload_url:
-            print("❌ ВК не выдал сервер для загрузки")
+            print(f"❌ ВК не выдал сервер. Ответ ВК: {server_resp}")
             return None
         
-        # 2. Загружаем файл
         files = {'photo': ('image.jpg', img_response.content, 'image/jpeg')}
         upload_result = requests.post(upload_url, files=files).json()
         
@@ -104,7 +100,6 @@ def upload_photo_to_vk(image_url):
             print(f"❌ ВК не принял файл: {upload_result}")
             return None
             
-        # 3. Сохраняем (ИСПОЛЬЗУЕМ БЕЗОПАСНЫЕ ПАРАМЕТРЫ)
         save_params = {
             'group_id': VK_GROUP_ID,
             'photo': upload_result['photo'],
@@ -131,10 +126,8 @@ def upload_photo_to_vk(image_url):
 def post_to_vk_scheduled(text, attachment, post_index):
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
-    # --- НАСТРОЙКИ РАСПИСАНИЯ ---
     START_DELAY_HOURS = 24 
     GAP_BETWEEN_POSTS = 0.5 
-    # ----------------------------
 
     offset_hours = START_DELAY_HOURS + (post_index * GAP_BETWEEN_POSTS) 
     publish_time = int(time.time()) + int(offset_hours * 3600) 
