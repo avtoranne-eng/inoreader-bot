@@ -2,6 +2,7 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urljoin # Мощный инструмент для склейки кривых ссылок
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
@@ -29,11 +30,11 @@ PROCESSED_FILE = "sims_processed.txt"
 MAX_MODS_PER_RUN = 10
 MAX_PAGES = 30
 
-# Системные ссылки, которые бот должен игнорировать
 BLACKLIST = [
     '/tags/', '/popular', '/bookmarks', '/downloads', '/packs', 
-    '/login', '/creators', '/user/', '/rules', '/feedback', 
-    '/registration', '/auth', '/search', '/engine/', 'javascript:', '#'
+    '/login', '/creators', '/user', '/rules', '/feedback', 
+    '/registration', '/auth', '/search', '/engine', 'javascript:', '#',
+    '/pdn', '/copyright', '/contacts', '/about', '/faq'
 ]
 
 def get_processed():
@@ -48,7 +49,6 @@ def mark_processed(mod_id):
 def send_to_telegram(title, img_url, file_path):
     caption = f"🔥 {title}"
     
-    # Отправка фото
     if img_url:
         req_url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
         try:
@@ -65,7 +65,6 @@ def send_to_telegram(title, img_url, file_path):
         except Exception as e:
             print(f"Ошибка отправки фото: {e}", flush=True)
             
-    # Отправка файла
     if file_path and os.path.exists(file_path):
         url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
         try:
@@ -76,12 +75,10 @@ def send_to_telegram(title, img_url, file_path):
             print(f"Ошибка отправки файла: {e}", flush=True)
 
 def extract_image(soup):
-    # 1. Проверяем мета-тег
     og = soup.find('meta', property='og:image')
     if og and og.get('content') and 'logo' not in og['content'].lower():
         return og['content']
         
-    # 2. Ищем картинки с поддержкой Lazy Load
     for img in soup.find_all('img'):
         for attr in ['data-src', 'data-original', 'data-lazy-src', 'src']:
             src = img.get(attr, '')
@@ -89,7 +86,6 @@ def extract_image(soup):
                 if not any(x in src.lower() for x in ['logo', 'icon', 'avatar', 'rating', 'stars', 'banner']):
                     return src
                     
-    # 3. Ищем ссылки на полноразмерные изображения в теле статьи
     for a in soup.find_all('a', href=True):
         href = a['href']
         if any(href.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp']):
@@ -127,20 +123,23 @@ def main():
                 
                 for a in soup.find_all('a', href=True):
                     href = a.get('href', '')
-                    if href.startswith('/'):
-                        href = f"https://sims4pack.ru{href}"
+                    # Склеиваем ссылки правильно
+                    full_url = urljoin(page_url, href)
                         
-                    if not href.startswith("https://sims4pack.ru/"):
-                        continue
-                    if href.rstrip('/') == category.rstrip('/'):
-                        continue
-                    if any(bad in href.lower() for bad in BLACKLIST):
-                        continue
-                    if href.rstrip('/') == "https://sims4pack.ru":
+                    if not full_url.startswith("https://sims4pack.ru/"):
                         continue
                         
-                    if href not in mod_links:
-                        mod_links.append(href)
+                    # Убираем все мусорные и системные ссылки
+                    if any(bad in full_url.lower() for bad in BLACKLIST):
+                        continue
+                        
+                    # ПРАВИЛО "ДВУХ ЭТАЖЕЙ": Отсекаем ссылки типа /pdn, оставляем /odezda/mod-name
+                    path = full_url.replace("https://sims4pack.ru", "").split('?')[0].strip('/')
+                    if len(path.split('/')) < 2:
+                        continue
+                        
+                    if full_url not in mod_links:
+                        mod_links.append(full_url)
                 
                 if not mod_links:
                     break
@@ -164,24 +163,35 @@ def main():
                         title = title_tag.text.strip() if title_tag else "Мод для The Sims 4"
                         
                         img_url = extract_image(mod_soup)
-                        if img_url and img_url.startswith('/'):
-                            img_url = f"https://sims4pack.ru{img_url}"
+                        if img_url:
+                            img_url = urljoin(link, img_url)
 
                         download_link = None
                         for a in mod_soup.find_all('a', href=True):
                             href_a = a.get('href', '')
                             text_a = a.text.strip().lower()
                             classes_a = " ".join(a.get('class', [])).lower()
+                            
+                            full_dl = urljoin(link, href_a)
+                            
+                            # Игнорируем кнопку "Скачать" из главного меню!
+                            if full_dl.rstrip('/').endswith('/downloads'):
+                                continue
+                                
                             if 'download' in classes_a or 'download' in href_a.lower() or 'скачать' in text_a:
-                                download_link = href_a
+                                download_link = full_dl
                                 break
                         
                         if download_link:
-                            if download_link.startswith('/'):
-                                download_link = f"https://sims4pack.ru{download_link}"
-                            
                             file_resp = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
                             if file_resp.status_code == 200:
+                                
+                                # ПРОВЕРКА НА МУСОР: Если это веб-страница, а не файл - пропускаем
+                                content_type = file_resp.headers.get('Content-Type', '').lower()
+                                if 'text/html' in content_type:
+                                    print(f"Пропуск: по ссылке скачивается страница, а не мод! ({download_link})", flush=True)
+                                    continue
+                                
                                 filename = "mod.package"
                                 if "Content-Disposition" in file_resp.headers:
                                     cd = file_resp.headers["Content-Disposition"]
