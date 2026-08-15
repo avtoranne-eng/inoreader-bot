@@ -9,9 +9,8 @@ from bs4 import BeautifulSoup
 API_KEY = os.environ.get("GEMINI_API_KEY")
 VK_TOKEN = os.environ.get("VK_TOKEN")
 
-# --- БРОНЕБОЙНАЯ ОЧИСТКА ID ГРУППЫ ---
+# Очистка ID группы от букв и лишних символов
 RAW_VK_GROUP_ID = str(os.environ.get("VK_GROUP_ID", ""))
-# Оставляем только цифры, удаляем минусы, слова 'club', 'public' и пробелы
 VK_GROUP_ID = ''.join(filter(str.isdigit, RAW_VK_GROUP_ID))
 
 genai.configure(api_key=API_KEY)
@@ -31,30 +30,56 @@ def add_to_processed_list(title):
         f.write(title + "\n")
 
 def extract_image_url(article):
+    """Умный поиск обложки: сначала в RSS, затем на сайте-источнике"""
+    image_url = None
+    
+    # 1. Проверяем сам RSS-поток
     if 'media_content' in article and len(article.media_content) > 0:
         for media in article.media_content:
-            if 'url' in media: return media['url']
-    if 'links' in article:
+            if 'url' in media: 
+                image_url = media['url']
+                break
+                
+    if not image_url and 'links' in article:
         for link in article.links:
-            if 'image' in link.get('type', ''): return link.href
-    if 'description' in article:
+            if 'image' in link.get('type', ''): 
+                image_url = link.href
+                break
+                
+    if not image_url and 'description' in article:
         soup = BeautifulSoup(article.description, 'html.parser')
         for img in soup.find_all('img'):
             src = img.get('src', '')
             if not src: continue
             src_lower = src.lower()
-            if any(bad in src_lower for bad in ['logo', 'icon', 'avatar', 'pixel', 'tracker', 'feedburner', 'button', 'spinner']): continue
+            if any(bad in src_lower for bad in ['logo', 'icon', 'avatar', 'pixel', 'tracker', 'button']): continue
             if img.get('width') == '1' or img.get('height') == '1': continue
-            return src
-    return None
+            image_url = src
+            break
+
+    # 2. Если RSS пустой — идем на сам сайт и забираем главную обложку!
+    if not image_url and hasattr(article, 'link'):
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            resp = requests.get(article.link, headers=headers, timeout=15)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                # Ищем официальную обложку статьи (тег OpenGraph)
+                og_img = soup.find('meta', property='og:image')
+                if og_img and og_img.get('content'):
+                    image_url = og_img['content']
+        except Exception as e:
+            print(f"Не удалось вытянуть картинку с сайта: {e}")
+
+    return image_url
 
 def upload_photo_to_vk(image_url):
     if not image_url or not VK_TOKEN or not VK_GROUP_ID: return None
     try:
-        img_response = requests.get(image_url, stream=True, timeout=15)
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        img_response = requests.get(image_url, headers=headers, stream=True, timeout=15)
         if img_response.status_code != 200: return None
         
-        # Для сервера загрузки ВК нужен чистый ID без минуса
         server_url = f"https://api.vk.com/method/photos.getWallUploadServer?group_id={VK_GROUP_ID}&access_token={VK_TOKEN}&v={VK_API_VERSION}"
         upload_url = requests.get(server_url).json().get('response', {}).get('upload_url')
         if not upload_url: return None
@@ -74,12 +99,17 @@ def upload_photo_to_vk(image_url):
 def post_to_vk_scheduled(text, attachment, post_index):
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
-    offset_hours = 24 + (post_index * 3) 
+    # --- НАСТРОЙКИ РАСПИСАНИЯ ---
+    START_DELAY_HOURS = 1 # Через сколько часов выйдет ПЕРВЫЙ пост (сейчас: 1 час)
+    GAP_BETWEEN_POSTS = 1 # Разница между следующими постами (сейчас: 1 час)
+    # ----------------------------
+
+    offset_hours = START_DELAY_HOURS + (post_index * GAP_BETWEEN_POSTS) 
     publish_time = int(time.time()) + (offset_hours * 3600) 
     
     post_url = f"https://api.vk.com/method/wall.post"
     params = {
-        "owner_id": f"-{VK_GROUP_ID}", # Для постинга на стену ВК требует минус
+        "owner_id": f"-{VK_GROUP_ID}",
         "message": text,
         "publish_date": publish_time,
         "access_token": VK_TOKEN,
@@ -90,7 +120,7 @@ def post_to_vk_scheduled(text, attachment, post_index):
         
     response = requests.post(post_url, data=params).json()
     if 'response' in response:
-        print(f"Пост успешно улетел в отложку ВК (через {offset_hours} часов)!")
+        print(f"Пост улетел в отложку! Выйдет через {offset_hours} час(ов).")
         return True
     else:
         print(f"Ошибка публикации в ВК: {response}")
