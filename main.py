@@ -33,7 +33,6 @@ def extract_image_url(article):
     """Умный поиск обложки: сначала в RSS, затем на сайте-источнике"""
     image_url = None
     
-    # 1. Проверяем сам RSS-поток
     if 'media_content' in article and len(article.media_content) > 0:
         for media in article.media_content:
             if 'url' in media: 
@@ -57,50 +56,84 @@ def extract_image_url(article):
             image_url = src
             break
 
-    # 2. Если RSS пустой — идем на сам сайт и забираем главную обложку!
+    # Идем на сайт, притворяясь настоящим человеком
     if not image_url and hasattr(article, 'link'):
         try:
-            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+            print(f"🔍 Ищу картинку на сайте: {article.link}")
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Language': 'en-US,en;q=0.9',
+            }
             resp = requests.get(article.link, headers=headers, timeout=15)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, 'html.parser')
-                og_img = soup.find('meta', property='og:image')
+                og_img = soup.find('meta', property='og:image') or soup.find('meta', attrs={'name': 'twitter:image'})
                 if og_img and og_img.get('content'):
                     image_url = og_img['content']
+            else:
+                print(f"⚠️ Сайт не пустил бота (Код {resp.status_code})")
         except Exception as e:
-            print(f"Не удалось вытянуть картинку с сайта: {e}")
+            print(f"⚠️ Ошибка доступа к сайту: {e}")
 
+    print(f"🎯 Итоговая ссылка на фото: {image_url}")
     return image_url
 
 def upload_photo_to_vk(image_url):
     if not image_url or not VK_TOKEN or not VK_GROUP_ID: return None
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
         img_response = requests.get(image_url, headers=headers, stream=True, timeout=15)
-        if img_response.status_code != 200: return None
         
+        if img_response.status_code != 200:
+            print(f"❌ Не удалось скачать картинку (Код {img_response.status_code})")
+            return None
+        
+        # 1. Получаем сервер
         server_url = f"https://api.vk.com/method/photos.getWallUploadServer?group_id={VK_GROUP_ID}&access_token={VK_TOKEN}&v={VK_API_VERSION}"
         upload_url = requests.get(server_url).json().get('response', {}).get('upload_url')
-        if not upload_url: return None
         
+        if not upload_url:
+            print("❌ ВК не выдал сервер для загрузки")
+            return None
+        
+        # 2. Загружаем файл
         files = {'photo': ('image.jpg', img_response.content, 'image/jpeg')}
         upload_result = requests.post(upload_url, files=files).json()
         
-        save_url = f"https://api.vk.com/method/photos.saveWallPhoto?group_id={VK_GROUP_ID}&photo={upload_result['photo']}&server={upload_result['server']}&hash={upload_result['hash']}&access_token={VK_TOKEN}&v={VK_API_VERSION}"
-        save_result = requests.get(save_url).json()
+        if not upload_result.get('photo') or upload_result.get('photo') == '[]':
+            print(f"❌ ВК не принял файл: {upload_result}")
+            return None
+            
+        # 3. Сохраняем (ИСПОЛЬЗУЕМ БЕЗОПАСНЫЕ ПАРАМЕТРЫ)
+        save_params = {
+            'group_id': VK_GROUP_ID,
+            'photo': upload_result['photo'],
+            'server': upload_result['server'],
+            'hash': upload_result['hash'],
+            'access_token': VK_TOKEN,
+            'v': VK_API_VERSION
+        }
+        save_result = requests.post("https://api.vk.com/method/photos.saveWallPhoto", data=save_params).json()
         
-        photo_info = save_result.get('response', [{}])[0]
-        return f"photo{photo_info.get('owner_id')}_{photo_info.get('id')}"
+        if 'response' in save_result and len(save_result['response']) > 0:
+            photo_info = save_result['response'][0]
+            attachment = f"photo{photo_info.get('owner_id')}_{photo_info.get('id')}"
+            print(f"✅ Картинка успешно загружена в ВК: {attachment}")
+            return attachment
+        else:
+            print(f"❌ Ошибка сохранения картинки в ВК: {save_result}")
+            return None
+
     except Exception as e:
-        print(f"Ошибка загрузки фото в ВК: {e}")
+        print(f"❌ Критическая ошибка в блоке загрузки фото: {e}")
         return None
 
 def post_to_vk_scheduled(text, attachment, post_index):
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
     # --- НАСТРОЙКИ РАСПИСАНИЯ ---
-    START_DELAY_HOURS = 24 # Запас времени на твою проверку (24 часа)
-    GAP_BETWEEN_POSTS = 0.5 # Разница между постами (0.5 часа = 30 минут)
+    START_DELAY_HOURS = 24 
+    GAP_BETWEEN_POSTS = 0.5 
     # ----------------------------
 
     offset_hours = START_DELAY_HOURS + (post_index * GAP_BETWEEN_POSTS) 
@@ -119,10 +152,10 @@ def post_to_vk_scheduled(text, attachment, post_index):
         
     response = requests.post(post_url, data=params).json()
     if 'response' in response:
-        print(f"Пост улетел в отложку! Выйдет через {offset_hours} час(ов).")
+        print(f"✅ Пост улетел в отложку! Выйдет через {offset_hours} час(ов).")
         return True
     else:
-        print(f"Ошибка публикации в ВК: {response}")
+        print(f"❌ Ошибка публикации в ВК: {response}")
         return False
 
 def main():
@@ -134,7 +167,7 @@ def main():
         title = article.title
         if title in processed: continue
 
-        print(f"Обрабатываю: {title}")
+        print(f"\n--- Обрабатываю: {title} ---")
         
         raw_html = article.get('description', '')
         clean_text = BeautifulSoup(raw_html, "html.parser").get_text(separator=" ", strip=True)
@@ -157,7 +190,7 @@ def main():
                 if count >= 2: break 
                 time.sleep(15)
         except Exception as e:
-            print(f"Критическая ошибка: {e}")
+            print(f"❌ Критическая ошибка генерации: {e}")
             break
 
 if __name__ == "__main__":
