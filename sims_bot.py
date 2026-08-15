@@ -1,13 +1,12 @@
 import os
 import time
 import requests
-import re # Добавили библиотеку для умного поиска
+import re
 from bs4 import BeautifulSoup
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
-# Твой список всех разделов
 CATEGORY_URLS = [
     "https://sims4pack.ru/tags/cas-i-ekran-zagruzki/",
     "https://sims4pack.ru/tags/aksessuary/",
@@ -39,17 +38,33 @@ def mark_processed(mod_id):
         f.write(mod_id + "\n")
 
 def send_to_telegram(title, img_url, file_path):
+    caption = f"🔥 {title}"
+    
+    # 1. Скачиваем и отправляем картинку ЛОКАЛЬНО (обход защиты сайта)
     if img_url:
-        caption = f"🔥 {title}"
         req_url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
-        requests.post(req_url, data={"chat_id": TG_CHAT_ID, "photo": img_url, "caption": caption})
-        time.sleep(2) 
-
+        try:
+            img_resp = requests.get(img_url, headers=HEADERS, stream=True)
+            if img_resp.status_code == 200:
+                with open("temp_img.jpg", 'wb') as f:
+                    for chunk in img_resp.iter_content(1024):
+                        f.write(chunk)
+                with open("temp_img.jpg", 'rb') as f:
+                    requests.post(req_url, data={"chat_id": TG_CHAT_ID, "caption": caption}, files={"photo": f})
+                os.remove("temp_img.jpg")
+                time.sleep(2)
+        except Exception as e:
+            print(f"Не удалось отправить фото: {e}")
+            
+    # 2. Отправляем сам файл мода
     if file_path and os.path.exists(file_path):
         url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
-        with open(file_path, 'rb') as f:
-            requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f})
-        os.remove(file_path) 
+        try:
+            with open(file_path, 'rb') as f:
+                requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f})
+            os.remove(file_path)
+        except Exception as e:
+            print(f"Не удалось отправить файл: {e}")
 
 def main():
     if not TG_TOKEN or not TG_CHAT_ID:
@@ -72,18 +87,18 @@ def main():
                 if count >= 10:
                     break
                     
-                link = mod['href']
+                link = mod.get('href', '')
                 
-                # Отсеиваем чужие сайты
+                # --- УМНАЯ СКЛЕЙКА ССЫЛОК ---
+                # Если ссылка начинается с /, доклеиваем адрес сайта
+                if link.startswith('/'):
+                    link = f"https://sims4pack.ru{link}"
+                
                 if not link.startswith("https://sims4pack.ru/"):
                     continue
                 
-                # --- ТОТ САМЫЙ УМНЫЙ ФИЛЬТР ---
-                # Ищем в ссылке шаблон "/цифры-" (например /12345-). 
-                # Если цифр нет — это меню или мусор, пропускаем!
                 if not re.search(r'/\d+-', link):
                     continue
-                # ------------------------------
                     
                 if link in processed:
                     continue
@@ -98,30 +113,42 @@ def main():
                     title = title_tag.text.strip() if title_tag else "Мод для The Sims 4"
                     
                     img_url = None
+                    
                     og_img = mod_soup.find('meta', property='og:image')
                     if og_img and og_img.get('content'):
                         img_url = og_img['content']
                     
-                    if not img_url and title_tag:
-                        next_img = title_tag.find_next('img')
-                        if next_img and next_img.get('src'):
-                            img_url = next_img['src']
-                    
                     if not img_url:
-                        img_tag = mod_soup.find('img')
-                        img_url = img_tag['src'] if img_tag else None
+                        for img in mod_soup.find_all('img'):
+                            src = img.get('src', '')
+                            if 'uploads' in src.lower():
+                                img_url = src
+                                break
+                                
+                    if not img_url and title_tag and title_tag.parent:
+                        fallback_img = title_tag.parent.find('img')
+                        if fallback_img and fallback_img.get('src'):
+                            img_url = fallback_img['src']
+                            
+                    if not img_url:
+                        for img in mod_soup.find_all('img'):
+                            src = img.get('src', '')
+                            if src and not any(x in src.lower() for x in ['logo', 'icon', 'avatar', 'rating', 'stars']):
+                                img_url = src
+                                break
 
-                    if img_url and not img_url.startswith('http'):
+                    # Доклеиваем домен к картинке, если нужно
+                    if img_url and img_url.startswith('/'):
                         img_url = f"https://sims4pack.ru{img_url}"
 
                     download_link = None
                     for a in mod_soup.find_all('a', href=True):
                         if 'download' in a.get('class', []) or 'Скачать' in a.text:
-                            download_link = a['href']
+                            download_link = a.get('href', '')
                             break
                     
                     if download_link:
-                        if not download_link.startswith('http'):
+                        if download_link.startswith('/'):
                             download_link = f"https://sims4pack.ru{download_link}"
                         
                         file_response = requests.get(download_link, headers=HEADERS, stream=True)
