@@ -1,7 +1,6 @@
 import os
 import time
 import requests
-import re
 from bs4 import BeautifulSoup
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
@@ -28,7 +27,14 @@ CATEGORY_URLS = [
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
 PROCESSED_FILE = "sims_processed.txt"
 MAX_MODS_PER_RUN = 10
-MAX_PAGES_PER_CATEGORY = 50  # Листает до 50 страниц вглубь каждого раздела
+MAX_PAGES = 30
+
+# Системные ссылки, которые бот должен игнорировать
+BLACKLIST = [
+    '/tags/', '/popular', '/bookmarks', '/downloads', '/packs', 
+    '/login', '/creators', '/user/', '/rules', '/feedback', 
+    '/registration', '/auth', '/search', '/engine/', 'javascript:', '#'
+]
 
 def get_processed():
     if not os.path.exists(PROCESSED_FILE): return []
@@ -42,7 +48,7 @@ def mark_processed(mod_id):
 def send_to_telegram(title, img_url, file_path):
     caption = f"🔥 {title}"
     
-    # 1. Скачиваем картинку локально и отправляем в ТГ
+    # Отправка фото
     if img_url:
         req_url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
         try:
@@ -57,9 +63,9 @@ def send_to_telegram(title, img_url, file_path):
                     os.remove("temp_img.jpg")
                 time.sleep(2)
         except Exception as e:
-            print(f"Не удалось отправить фото: {e}")
+            print(f"Ошибка отправки фото: {e}", flush=True)
             
-    # 2. Отправляем сам файл мода
+    # Отправка файла
     if file_path and os.path.exists(file_path):
         url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
         try:
@@ -67,11 +73,33 @@ def send_to_telegram(title, img_url, file_path):
                 requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f}, timeout=60)
             os.remove(file_path)
         except Exception as e:
-            print(f"Не удалось отправить файл: {e}")
+            print(f"Ошибка отправки файла: {e}", flush=True)
+
+def extract_image(soup):
+    # 1. Проверяем мета-тег
+    og = soup.find('meta', property='og:image')
+    if og and og.get('content') and 'logo' not in og['content'].lower():
+        return og['content']
+        
+    # 2. Ищем картинки с поддержкой Lazy Load
+    for img in soup.find_all('img'):
+        for attr in ['data-src', 'data-original', 'data-lazy-src', 'src']:
+            src = img.get(attr, '')
+            if src and ('uploads' in src.lower() or 'post' in src.lower()):
+                if not any(x in src.lower() for x in ['logo', 'icon', 'avatar', 'rating', 'stars', 'banner']):
+                    return src
+                    
+    # 3. Ищем ссылки на полноразмерные изображения в теле статьи
+    for a in soup.find_all('a', href=True):
+        href = a['href']
+        if any(href.lower().endswith(ext) for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+            if 'uploads' in href.lower():
+                return href
+    return None
 
 def main():
     if not TG_TOKEN or not TG_CHAT_ID:
-        print("Отсутствуют ключи Telegram!")
+        print("Отсутствуют ключи Telegram!", flush=True)
         return
 
     processed = get_processed()
@@ -81,108 +109,87 @@ def main():
         if count >= MAX_MODS_PER_RUN:
             break
             
-        print(f"--- Сканируем категорию: {category} ---")
+        print(f"--- Раздел: {category} ---", flush=True)
         
-        # Листаем страницы раздела вглубь
-        for page_num in range(1, MAX_PAGES_PER_CATEGORY + 1):
+        for page in range(1, MAX_PAGES + 1):
             if count >= MAX_MODS_PER_RUN:
                 break
                 
-            page_url = category if page_num == 1 else f"{category.rstrip('/')}/page/{page_num}/"
+            page_url = category if page == 1 else f"{category.rstrip('/')}/page/{page}/"
             
             try:
-                response = requests.get(page_url, headers=HEADERS, timeout=15)
-                if response.status_code != 200:
-                    # Дошли до конца раздела (страницы кончились)
+                resp = requests.get(page_url, headers=HEADERS, timeout=15)
+                if resp.status_code != 200:
                     break
                     
-                soup = BeautifulSoup(response.text, 'html.parser')
-                all_links = soup.find_all('a', href=True)
-                
-                # Находим ссылки на моды на текущей странице (без дубликатов)
+                soup = BeautifulSoup(resp.text, 'html.parser')
                 mod_links = []
-                for a in all_links:
+                
+                for a in soup.find_all('a', href=True):
                     href = a.get('href', '')
                     if href.startswith('/'):
                         href = f"https://sims4pack.ru{href}"
-                    if href.startswith("https://sims4pack.ru/") and re.search(r'/\d+-', href):
-                        if href not in mod_links:
-                            mod_links.append(href)
+                        
+                    if not href.startswith("https://sims4pack.ru/"):
+                        continue
+                    if href.rstrip('/') == category.rstrip('/'):
+                        continue
+                    if any(bad in href.lower() for bad in BLACKLIST):
+                        continue
+                    if href.rstrip('/') == "https://sims4pack.ru":
+                        continue
+                        
+                    if href not in mod_links:
+                        mod_links.append(href)
                 
                 if not mod_links:
-                    # Нет модов на странице — выходим из категории
                     break
-                
+                    
                 for link in mod_links:
                     if count >= MAX_MODS_PER_RUN:
                         break
-                        
-                    # Если этот мод уже скачан — просто идем к следующему
                     if link in processed:
                         continue
 
-                    print(f"Обрабатываю мод [Стр. {page_num}]: {link}")
+                    print(f"Скачиваю [Стр. {page}]: {link}", flush=True)
                     
                     try:
-                        mod_page = requests.get(link, headers=HEADERS, timeout=15)
-                        if mod_page.status_code != 200:
+                        mod_resp = requests.get(link, headers=HEADERS, timeout=15)
+                        if mod_resp.status_code != 200:
                             continue
                             
-                        mod_soup = BeautifulSoup(mod_page.text, 'html.parser')
+                        mod_soup = BeautifulSoup(mod_resp.text, 'html.parser')
                         
-                        # Название
                         title_tag = mod_soup.find('h1')
                         title = title_tag.text.strip() if title_tag else "Мод для The Sims 4"
                         
-                        # Поиск картинки
-                        img_url = None
-                        og_img = mod_soup.find('meta', property='og:image')
-                        if og_img and og_img.get('content'):
-                            img_url = og_img['content']
-                        
-                        if not img_url:
-                            for img in mod_soup.find_all('img'):
-                                src = img.get('src', '')
-                                if 'uploads' in src.lower():
-                                    img_url = src
-                                    break
-                                    
-                        if not img_url and title_tag and title_tag.parent:
-                            fallback_img = title_tag.parent.find('img')
-                            if fallback_img and fallback_img.get('src'):
-                                img_url = fallback_img['src']
-                                
-                        if not img_url:
-                            for img in mod_soup.find_all('img'):
-                                src = img.get('src', '')
-                                if src and not any(x in src.lower() for x in ['logo', 'icon', 'avatar', 'rating', 'stars']):
-                                    img_url = src
-                                    break
-
+                        img_url = extract_image(mod_soup)
                         if img_url and img_url.startswith('/'):
                             img_url = f"https://sims4pack.ru{img_url}"
 
-                        # Поиск ссылки на скачивание
                         download_link = None
                         for a in mod_soup.find_all('a', href=True):
-                            if 'download' in a.get('class', []) or 'Скачать' in a.text:
-                                download_link = a.get('href', '')
+                            href_a = a.get('href', '')
+                            text_a = a.text.strip().lower()
+                            classes_a = " ".join(a.get('class', [])).lower()
+                            if 'download' in classes_a or 'download' in href_a.lower() or 'скачать' in text_a:
+                                download_link = href_a
                                 break
                         
                         if download_link:
                             if download_link.startswith('/'):
                                 download_link = f"https://sims4pack.ru{download_link}"
                             
-                            file_response = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
-                            if file_response.status_code == 200:
+                            file_resp = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
+                            if file_resp.status_code == 200:
                                 filename = "mod.package"
-                                if "Content-Disposition" in file_response.headers:
-                                    cd = file_response.headers["Content-Disposition"]
+                                if "Content-Disposition" in file_resp.headers:
+                                    cd = file_resp.headers["Content-Disposition"]
                                     if "filename=" in cd:
                                         filename = cd.split("filename=")[-1].strip('"').strip("'")
                                 
                                 with open(filename, 'wb') as f:
-                                    for chunk in file_response.iter_content(chunk_size=8192):
+                                    for chunk in file_resp.iter_content(chunk_size=8192):
                                         f.write(chunk)
                                 
                                 send_to_telegram(title, img_url, filename)
@@ -193,10 +200,10 @@ def main():
                                 time.sleep(5)
                                 
                     except Exception as e:
-                        print(f"Ошибка при обработке {link}: {e}")
+                        print(f"Ошибка при обработке {link}: {e}", flush=True)
                         
             except Exception as e:
-                print(f"Ошибка доступа к {page_url}: {e}")
+                print(f"Ошибка раздела {page_url}: {e}", flush=True)
                 break
 
 if __name__ == "__main__":
