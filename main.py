@@ -13,7 +13,7 @@ VK_GROUP_ID = os.environ.get("VK_GROUP_ID")
 genai.configure(api_key=API_KEY)
 model = genai.GenerativeModel("gemini-3.5-flash-lite")
 
-RSS_URL = "https://avtoranne.raindrop.page/novosti-level-up-74004813"
+RSS_URL = "https://avtoranne.raindrop.page/novosti-level-up-74004813/feed"
 PROCESSED_FILE = "processed.txt"
 VK_API_VERSION = "5.131"
 
