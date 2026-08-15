@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
 API_KEY = os.environ.get("GEMINI_API_KEY")
-VK_TOKEN = os.environ.get("VK_TOKEN")
+VK_TOKEN = os.environ.get("VK_TOKEN") # Используй обычный ключ группы!
 
 RAW_VK_GROUP_ID = str(os.environ.get("VK_GROUP_ID", ""))
 VK_GROUP_ID = ''.join(filter(str.isdigit, RAW_VK_GROUP_ID))
@@ -28,106 +28,13 @@ def add_to_processed_list(title):
     with open(PROCESSED_FILE, "a", encoding="utf-8") as f:
         f.write(title + "\n")
 
-def extract_image_url(article):
-    image_url = None
-    
-    if 'media_content' in article and len(article.media_content) > 0:
-        for media in article.media_content:
-            if 'url' in media: 
-                image_url = media['url']
-                break
-                
-    if not image_url and 'links' in article:
-        for link in article.links:
-            if 'image' in link.get('type', ''): 
-                image_url = link.href
-                break
-                
-    if not image_url and 'description' in article:
-        soup = BeautifulSoup(article.description, 'html.parser')
-        for img in soup.find_all('img'):
-            src = img.get('src', '')
-            if not src: continue
-            src_lower = src.lower()
-            if any(bad in src_lower for bad in ['logo', 'icon', 'avatar', 'pixel', 'tracker', 'button']): continue
-            if img.get('width') == '1' or img.get('height') == '1': continue
-            image_url = src
-            break
-
-    if not image_url and hasattr(article, 'link'):
-        try:
-            print(f"🔍 Ищу картинку на сайте: {article.link}")
-            headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept-Language': 'en-US,en;q=0.9',
-            }
-            resp = requests.get(article.link, headers=headers, timeout=15)
-            if resp.status_code == 200:
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                og_img = soup.find('meta', property='og:image') or soup.find('meta', attrs={'name': 'twitter:image'})
-                if og_img and og_img.get('content'):
-                    image_url = og_img['content']
-            else:
-                print(f"⚠️ Сайт не пустил бота (Код {resp.status_code})")
-        except Exception as e:
-            print(f"⚠️ Ошибка доступа к сайту: {e}")
-
-    print(f"🎯 Итоговая ссылка на фото: {image_url}")
-    return image_url
-
-def upload_photo_to_vk(image_url):
-    if not image_url or not VK_TOKEN or not VK_GROUP_ID: return None
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-        img_response = requests.get(image_url, headers=headers, stream=True, timeout=15)
-        
-        if img_response.status_code != 200:
-            print(f"❌ Не удалось скачать картинку (Код {img_response.status_code})")
-            return None
-        
-        server_url = f"https://api.vk.com/method/photos.getWallUploadServer?group_id={VK_GROUP_ID}&access_token={VK_TOKEN}&v={VK_API_VERSION}"
-        server_resp = requests.get(server_url).json()
-        upload_url = server_resp.get('response', {}).get('upload_url')
-        
-        if not upload_url:
-            print(f"❌ ВК не выдал сервер. Ответ ВК: {server_resp}")
-            return None
-        
-        files = {'photo': ('image.jpg', img_response.content, 'image/jpeg')}
-        upload_result = requests.post(upload_url, files=files).json()
-        
-        if not upload_result.get('photo') or upload_result.get('photo') == '[]':
-            print(f"❌ ВК не принял файл: {upload_result}")
-            return None
-            
-        save_params = {
-            'group_id': VK_GROUP_ID,
-            'photo': upload_result['photo'],
-            'server': upload_result['server'],
-            'hash': upload_result['hash'],
-            'access_token': VK_TOKEN,
-            'v': VK_API_VERSION
-        }
-        save_result = requests.post("https://api.vk.com/method/photos.saveWallPhoto", data=save_params).json()
-        
-        if 'response' in save_result and len(save_result['response']) > 0:
-            photo_info = save_result['response'][0]
-            attachment = f"photo{photo_info.get('owner_id')}_{photo_info.get('id')}"
-            print(f"✅ Картинка успешно загружена в ВК: {attachment}")
-            return attachment
-        else:
-            print(f"❌ Ошибка сохранения картинки в ВК: {save_result}")
-            return None
-
-    except Exception as e:
-        print(f"❌ Критическая ошибка в блоке загрузки фото: {e}")
-        return None
-
-def post_to_vk_scheduled(text, attachment, post_index):
+def post_to_vk_scheduled(text, article_link, post_index):
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
-    START_DELAY_HOURS = 24 
-    GAP_BETWEEN_POSTS = 0.5 
+    # --- ТВОИ НАСТРОЙКИ ВРЕМЕНИ (Всё на месте!) ---
+    START_DELAY_HOURS = 24  # Первый пост улетит на завтра
+    GAP_BETWEEN_POSTS = 0.5 # Разница ровно 30 минут
+    # ----------------------------------------------
 
     offset_hours = START_DELAY_HOURS + (post_index * GAP_BETWEEN_POSTS) 
     publish_time = int(time.time()) + int(offset_hours * 3600) 
@@ -137,11 +44,10 @@ def post_to_vk_scheduled(text, attachment, post_index):
         "owner_id": f"-{VK_GROUP_ID}",
         "message": text,
         "publish_date": publish_time,
+        "attachments": article_link, # 👈 Отдаем ВК ссылку, он сам вытянет обложку!
         "access_token": VK_TOKEN,
         "v": VK_API_VERSION
     }
-    if attachment:
-        params["attachments"] = attachment
         
     response = requests.post(post_url, data=params).json()
     if 'response' in response:
@@ -172,10 +78,11 @@ def main():
             response = model.generate_content(prompt)
             generated_text = response.text
             
-            image_url = extract_image_url(article)
-            attachment = upload_photo_to_vk(image_url)
+            # Берем оригинальную ссылку на новость из Raindrop
+            article_link = article.link
             
-            success = post_to_vk_scheduled(generated_text, attachment, count)
+            # Отправляем текст и ссылку в ВК
+            success = post_to_vk_scheduled(generated_text, article_link, count)
             
             if success:
                 add_to_processed_list(title)
