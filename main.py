@@ -64,7 +64,6 @@ def extract_image_url(article):
             resp = requests.get(article.link, headers=headers, timeout=15)
             if resp.status_code == 200:
                 soup = BeautifulSoup(resp.text, 'html.parser')
-                # Ищем официальную обложку статьи (тег OpenGraph)
                 og_img = soup.find('meta', property='og:image')
                 if og_img and og_img.get('content'):
                     image_url = og_img['content']
@@ -100,12 +99,12 @@ def post_to_vk_scheduled(text, attachment, post_index):
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
     # --- НАСТРОЙКИ РАСПИСАНИЯ ---
-    START_DELAY_HOURS = 1 # Через сколько часов выйдет ПЕРВЫЙ пост (сейчас: 1 час)
-    GAP_BETWEEN_POSTS = 1 # Разница между следующими постами (сейчас: 1 час)
+    START_DELAY_HOURS = 24 # Запас времени на твою проверку (24 часа)
+    GAP_BETWEEN_POSTS = 0.5 # Разница между постами (0.5 часа = 30 минут)
     # ----------------------------
 
     offset_hours = START_DELAY_HOURS + (post_index * GAP_BETWEEN_POSTS) 
-    publish_time = int(time.time()) + (offset_hours * 3600) 
+    publish_time = int(time.time()) + int(offset_hours * 3600) 
     
     post_url = f"https://api.vk.com/method/wall.post"
     params = {
