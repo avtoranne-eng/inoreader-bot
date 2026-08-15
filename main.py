@@ -1,6 +1,5 @@
 import os
 import time
-import re
 import feedparser
 import requests
 import google.generativeai as genai
@@ -28,18 +27,39 @@ def add_to_processed_list(title):
         f.write(title + "\n")
 
 def extract_image_url(article):
-    """Пытаемся найти картинку в новости"""
+    """Умный поиск нормальной обложки без мусора и пикселей"""
+    
+    # 1. Ищем в официальных медиа-вложениях (там обычно лучшее качество)
     if 'media_content' in article and len(article.media_content) > 0:
-        return article.media_content[0]['url']
+        for media in article.media_content:
+            if 'url' in media:
+                return media['url']
+                
     if 'links' in article:
         for link in article.links:
             if 'image' in link.get('type', ''):
                 return link.href
+                
+    # 2. Ищем в теле статьи, но жестко фильтруем мусор
     if 'description' in article:
         soup = BeautifulSoup(article.description, 'html.parser')
-        img = soup.find('img')
-        if img and img.get('src'):
-            return img['src']
+        for img in soup.find_all('img'):
+            src = img.get('src', '')
+            if not src: 
+                continue
+                
+            src_lower = src.lower()
+            
+            # Отсекаем трекеры, логотипы, аватарки и системные кнопки
+            if any(bad in src_lower for bad in ['logo', 'icon', 'avatar', 'pixel', 'tracker', 'feedburner', 'button', 'spinner']):
+                continue
+                
+            # Отсекаем пиксели 1x1, которые сайты суют для статистики
+            if img.get('width') == '1' or img.get('height') == '1':
+                continue
+                
+            return src
+            
     return None
 
 def upload_photo_to_vk(image_url):
@@ -48,20 +68,16 @@ def upload_photo_to_vk(image_url):
         return None
     
     try:
-        # Скачиваем картинку
-        img_response = requests.get(image_url, stream=True)
+        img_response = requests.get(image_url, stream=True, timeout=15)
         if img_response.status_code != 200: return None
         
-        # Получаем сервер для загрузки
         server_url = f"https://api.vk.com/method/photos.getWallUploadServer?group_id={VK_GROUP_ID}&access_token={VK_TOKEN}&v={VK_API_VERSION}"
         upload_url = requests.get(server_url).json().get('response', {}).get('upload_url')
         if not upload_url: return None
         
-        # Загружаем файл
         files = {'photo': ('image.jpg', img_response.content, 'image/jpeg')}
         upload_result = requests.post(upload_url, files=files).json()
         
-        # Сохраняем фото в группе
         save_url = f"https://api.vk.com/method/photos.saveWallPhoto?group_id={VK_GROUP_ID}&photo={upload_result['photo']}&server={upload_result['server']}&hash={upload_result['hash']}&access_token={VK_TOKEN}&v={VK_API_VERSION}"
         save_result = requests.get(save_url).json()
         
@@ -71,12 +87,14 @@ def upload_photo_to_vk(image_url):
         print(f"Ошибка загрузки фото в ВК: {e}")
         return None
 
-def post_to_vk_scheduled(text, attachment):
-    """Отправляем пост в отложку ВК на 24 часа вперед"""
+def post_to_vk_scheduled(text, attachment, post_index):
+    """Отправляем пост в отложку со сдвигом по времени (чтобы не слипались)"""
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
-    # Время публикации: текущее время + 24 часа (86400 секунд)
-    publish_time = int(time.time()) + 86400 
+    # Базовое время: завтрашний день (+24 часа). 
+    # Каждый следующий пост за один прогон сдвигается еще на 3 часа вперед.
+    offset_hours = 24 + (post_index * 3) 
+    publish_time = int(time.time()) + (offset_hours * 3600) 
     
     post_url = f"https://api.vk.com/method/wall.post"
     params = {
@@ -91,7 +109,7 @@ def post_to_vk_scheduled(text, attachment):
         
     response = requests.post(post_url, data=params).json()
     if 'response' in response:
-        print("Пост успешно улетел в отложку ВК!")
+        print(f"Пост успешно улетел в отложку ВК (через {offset_hours} часов)!")
         return True
     else:
         print(f"Ошибка публикации в ВК: {response}")
@@ -108,8 +126,13 @@ def main():
 
         print(f"Обрабатываю: {title}")
         
-        # Тот самый правильный промпт для красивого текста
-        prompt = f"Твоя роль: экспертный игровой журналист, игровой блогер, контент-мейкер и строгий литературный редактор. Задача: Напиши максимально развернутый, глубокий и подробный лонгрид для ВКонтакте, детально анализируя каждый аспект новости. Правила: - Придумай мощный SEO-заголовок под конкретные поисковые запросы геймеров. - Абсолютная грамотность: текст должен быть идеальным. Никаких орфографических, пунктуационных, речевых или стилистических ошибок. Внимательно следи за правильным согласованием окончаний и падежей. - Поскольку стандартное разделение на абзацы и жирный шрифт недоступны, активно и структурированно используй эмодзи для визуального разделения логических блоков, списков и выделения важных мыслей. Эмодзи — твой единственный инструмент форматирования текста. - Текст должен быть без воды, написан живым языком. - В конце статьи напиши призыв подписчиков к комментариям. - В самом конце текста, с новой строки, обязательно напиши 7-8 релевантных хештега для ВК. Первым и обязательным всегда должен стоять тег #LevelupNews. Новость: {title}. Текст: {article.get('description', '')}"
+        # Очищаем текст новости от кусков HTML-кода, чтобы нейросети было проще
+        raw_html = article.get('description', '')
+        clean_text = BeautifulSoup(raw_html, "html.parser").get_text(separator=" ", strip=True)
+        # Урезаем до 3000 символов, чтобы не превысить лимиты API
+        clean_text = clean_text[:3000]
+        
+        prompt = f"Твоя роль: экспертный игровой журналист, игровой блогер, контент-мейкер и строгий литературный редактор. Задача: Напиши максимально развернутый, глубокий и подробный лонгрид для ВКонтакте, детально анализируя каждый аспект новости. Правила: - Придумай мощный SEO-заголовок под конкретные поисковые запросы геймеров. - Абсолютная грамотность: текст должен быть идеальным. Никаких орфографических, пунктуационных, речевых или стилистических ошибок. Внимательно следи за правильным согласованием окончаний и падежей. - Поскольку стандартное разделение на абзацы и жирный шрифт недоступны, активно и структурированно используй эмодзи для визуального разделения логических блоков, списков и выделения важных мыслей. Эмодзи — твой единственный инструмент форматирования текста. - Текст должен быть без воды, написан живым языком. - В конце статьи напиши призыв подписчиков к комментариям. - В самом конце текста, с новой строки, обязательно напиши 7-8 релевантных хештега для ВК. Первым и обязательным всегда должен стоять тег #LevelupNews. Новость: {title}. Текст: {clean_text}"
 
         try:
             # 1. Генерируем текст
@@ -120,8 +143,8 @@ def main():
             image_url = extract_image_url(article)
             attachment = upload_photo_to_vk(image_url)
             
-            # 3. Отправляем в ВК в отложку
-            success = post_to_vk_scheduled(generated_text, attachment)
+            # 3. Отправляем в ВК в отложку (передаем count для сдвига по времени)
+            success = post_to_vk_scheduled(generated_text, attachment, count)
             
             if success:
                 add_to_processed_list(title)
