@@ -72,14 +72,14 @@ def extract_image_url(article):
 
     return image_url
 
-def post_to_vk_scheduled(text, post_index):
+def post_to_vk_scheduled(text):
     if not VK_TOKEN or not VK_GROUP_ID: return False
     
-    START_DELAY_HOURS = 24 
-    GAP_BETWEEN_POSTS = 0.5 
+    # --- НАСТРОЙКА ВРЕМЕНИ ---
+    START_DELAY_HOURS = 24  # Пост выйдет ровно через 24 часа
+    # -------------------------
 
-    offset_hours = START_DELAY_HOURS + (post_index * GAP_BETWEEN_POSTS) 
-    publish_time = int(time.time()) + int(offset_hours * 3600) 
+    publish_time = int(time.time()) + int(START_DELAY_HOURS * 3600) 
     
     post_url = f"https://api.vk.com/method/wall.post"
     params = {
@@ -92,7 +92,7 @@ def post_to_vk_scheduled(text, post_index):
         
     response = requests.post(post_url, data=params).json()
     if 'response' in response:
-        print(f"✅ Пост улетел в отложку! Выйдет через {offset_hours} час(ов).")
+        print(f"✅ Пост улетел в отложку! Выйдет через {START_DELAY_HOURS} час(ов).")
         return True
     else:
         print(f"❌ Ошибка публикации в ВК: {response}")
@@ -127,13 +127,13 @@ def main():
                 print("⚠️ Картинку найти не удалось.")
             
             # Публикуем текст в отложку
-            success = post_to_vk_scheduled(generated_text, count)
+            success = post_to_vk_scheduled(generated_text)
             
             if success:
                 add_to_processed_list(title)
                 count += 1
-                if count >= 2: break 
-                time.sleep(15)
+                # Останавливаем скрипт после ОДНОГО успешного поста
+                if count >= 1: break 
         except Exception as e:
             print(f"❌ Критическая ошибка генерации: {e}")
             break
