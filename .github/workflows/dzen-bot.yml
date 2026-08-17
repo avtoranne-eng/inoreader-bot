@@ -1,0 +1,39 @@
+name: Dzen Auto-Poster
+
+on:
+  workflow_dispatch: # Оставляет кнопку для ручного запуска тестирования
+  repository_dispatch:
+    types: [run-dzen-bot] # Имя события для твоего внешнего планировщика (cron)
+
+permissions:
+  contents: write # Критически важно: даем боту право сохранять тексты в твой GitHub
+
+jobs:
+  run-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install feedparser requests google-generativeai beautifulsoup4
+
+      - name: Run Dzen Bot
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python dzen_bot.py
+
+      - name: Commit and save articles
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "📝 Добавлен новый лонгрид для Дзена" || echo "Нет новых статей для сохранения"
+          git push
