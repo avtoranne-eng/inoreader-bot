@@ -27,6 +27,8 @@ jobs:
         env:
           TG_DA_BOT_TOKEN: ${{ secrets.TG_DA_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          DA_CLIENT_ID: ${{ secrets.DA_CLIENT_ID }}
+          DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
         run: python da_bot.py
 
       - name: Commit processed arts
