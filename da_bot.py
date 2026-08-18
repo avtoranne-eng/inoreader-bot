@@ -10,7 +10,6 @@ TG_DA_BOT_TOKEN = os.environ.get("TG_DA_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 # --- БАЗА ИГР ---
-# Теперь храним как словарь: "Название": "Ссылка"
 GAMES = {
     "Detroit become human": "https://backend.deviantart.com/rss.xml?q=Detroit+become+human",
     "Resident evil": "https://backend.deviantart.com/rss.xml?q=Resident+evil"
@@ -21,15 +20,19 @@ PROCESSED_FILE = "processed_arts.txt"
 POSTS_PER_GAME = 5   
 DELAY_SECONDS = 15   
 
+# Маскируемся под обычный браузер Chrome, чтобы пробить защиту CloudFront
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
+}
+
 def load_offsets():
-    """Загружает память о том, как глубоко мы пролистали ленту каждой игры"""
     if os.path.exists(OFFSETS_FILE):
         with open(OFFSETS_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
 def save_offsets(offsets):
-    """Сохраняет прогресс пролистывания"""
     with open(OFFSETS_FILE, "w", encoding="utf-8") as f:
         json.dump(offsets, f, ensure_ascii=False, indent=4)
 
@@ -43,7 +46,6 @@ def add_to_processed_list(link):
         f.write(link + "\n")
 
 def send_photo_to_telegram(image_url, caption):
-    """Отправляет картинку в Telegram"""
     if not TG_DA_BOT_TOKEN or not TG_CHAT_ID:
         print("❌ Ошибка: Ключи Telegram не найдены!")
         return False
@@ -68,26 +70,32 @@ def main():
     offsets = load_offsets()
 
     for game_name, base_url in GAMES.items():
-        # Достаем текущий сдвиг (начинаем с 0, если игры еще не было в памяти)
         current_offset = offsets.get(game_name, 0)
-        
-        # Подставляем параметр прокрутки ленты в ссылку
         url = f"{base_url}&offset={current_offset}"
         
-        print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг в архиве: {current_offset})")
+        print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг: {current_offset})")
         
         try:
-            feed = feedparser.parse(url)
+            # 1. Стучимся на сайт под видом Google Chrome
+            response = requests.get(url, headers=HEADERS, timeout=15)
+            
+            if response.status_code != 200:
+                print(f"❌ CloudFront всё еще ругается. Код ошибки: {response.status_code}")
+                continue
+                
+            # 2. Передаем полученный чистый код парсеру
+            feed = feedparser.parse(response.content)
+            
         except Exception as e:
-            print(f"❌ Ошибка чтения ленты для {game_name}: {e}")
+            print(f"❌ Ошибка сети: {e}")
             continue
             
         if not feed.entries:
-            print(f"⚠️ Достигнут конец архива DeviantArt для {game_name}!")
+            print(f"⚠️ Достигнут конец архива (или DeviantArt не выдал картинки) для {game_name}!")
             continue
 
         count = 0
-        items_checked = 0 # Считаем, сколько постов мы пролистали физически
+        items_checked = 0 
         
         for entry in feed.entries:
             items_checked += 1
@@ -99,7 +107,6 @@ def main():
             title = entry.title
             author = entry.author if hasattr(entry, 'author') else "Неизвестный автор"
             
-            # --- ТРЕХУРОВНЕВЫЙ ПОИСК КАРТИНКИ ---
             image_url = None
             if 'media_content' in entry and len(entry.media_content) > 0:
                 image_url = entry.media_content[0].get('url')
@@ -132,10 +139,8 @@ def main():
                 print(f"⏳ Ждем {DELAY_SECONDS} сек...")
                 time.sleep(DELAY_SECONDS)
         
-        # Обновляем сдвиг на количество пролистанных постов, чтобы в следующий раз начать дальше
         offsets[game_name] = current_offset + items_checked
 
-    # Сохраняем прогресс пролистывания в файл
     save_offsets(offsets)
 
 if __name__ == "__main__":
