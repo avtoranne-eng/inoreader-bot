@@ -9,10 +9,10 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 DA_CLIENT_ID = os.environ.get("DA_CLIENT_ID")
 DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 
-# --- БАЗА ИГР (формат тегов для официального API) ---
+# --- БАЗА ИГР ---
 GAMES = {
-    "Detroit become human": "detroitbecomehuman",
-    "Resident evil": "residentevil"
+    "Detroit become human": "Detroit become human",
+    "Resident evil": "Resident evil"
 }
 
 OFFSETS_FILE = "offsets.json"
@@ -88,14 +88,14 @@ def main():
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    for game_name, tag in GAMES.items():
+    for game_name, query in GAMES.items():
         current_offset = offsets.get(game_name, 0)
-        print(f"\n🔍 Запрос к API (тег: {tag}): {game_name} (Сдвиг: {current_offset})")
+        print(f"\n🔍 Поиск через API: {game_name} (Сдвиг: {current_offset})")
         
-        # Исправленный официальный эндпоинт для работы с тегами
-        search_url = "https://www.deviantart.com/api/v1/oauth2/browse/tag"
+        # 🔥 Официальный рабочий эндпоинт поиска
+        search_url = "https://www.deviantart.com/api/v1/oauth2/deviation/search"
         params = {
-            "tag": tag,
+            "q": query,
             "offset": current_offset,
             "limit": 24,
             "mature_content": "true"
