@@ -3,7 +3,7 @@ import time
 import json
 import feedparser
 import requests
-import cloudscraper
+import urllib.parse
 from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
@@ -64,27 +64,23 @@ def main():
     processed = get_processed_links()
     offsets = load_offsets()
 
-    # 🔥 Создаем обходчик CloudFront 🔥
-    scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'windows',
-            'desktop': True
-        }
-    )
-
     for game_name, base_url in GAMES.items():
         current_offset = offsets.get(game_name, 0)
-        url = f"{base_url}&offset={current_offset}"
+        target_url = f"{base_url}&offset={current_offset}"
         
         print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг: {current_offset})")
         
         try:
-            # Стучимся через cloudscraper
-            response = scraper.get(url, timeout=15)
+            # 🔥 ИСПОЛЬЗУЕМ PROXY-МОСТ 🔥
+            # Кодируем нашу ссылку, чтобы безопасно передать её через AllOrigins
+            encoded_url = urllib.parse.quote(target_url, safe="")
+            proxy_url = f"https://api.allorigins.win/raw?url={encoded_url}"
+            
+            # Стучимся не напрямую в DeviantArt, а просим AllOrigins скачать для нас XML
+            response = requests.get(proxy_url, timeout=20)
             
             if response.status_code != 200:
-                print(f"❌ CloudFront наглухо блокирует. Код: {response.status_code}")
+                print(f"❌ Прокси-сервер не смог пробиться. Код: {response.status_code}")
                 continue
                 
             feed = feedparser.parse(response.content)
@@ -94,7 +90,7 @@ def main():
             continue
             
         if not feed.entries:
-            print(f"⚠️ Достигнут конец архива (или DeviantArt не выдал картинки) для {game_name}!")
+            print(f"⚠️ Достигнут конец архива (или пустой ответ) для {game_name}!")
             continue
 
         count = 0
