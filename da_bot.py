@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import feedparser
 import requests
 from bs4 import BeautifulSoup
@@ -8,15 +9,29 @@ from bs4 import BeautifulSoup
 TG_DA_BOT_TOKEN = os.environ.get("TG_DA_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
-# --- СПИСОК ИГР ---
-RSS_URLS = [
-    "https://backend.deviantart.com/rss.xml?q=Detroit+become+human",
-    "https://backend.deviantart.com/rss.xml?q=Resident+evil"
-]
+# --- БАЗА ИГР ---
+# Теперь храним как словарь: "Название": "Ссылка"
+GAMES = {
+    "Detroit become human": "https://backend.deviantart.com/rss.xml?q=Detroit+become+human",
+    "Resident evil": "https://backend.deviantart.com/rss.xml?q=Resident+evil"
+}
 
+OFFSETS_FILE = "offsets.json"
 PROCESSED_FILE = "processed_arts.txt"
 POSTS_PER_GAME = 5   
 DELAY_SECONDS = 15   
+
+def load_offsets():
+    """Загружает память о том, как глубоко мы пролистали ленту каждой игры"""
+    if os.path.exists(OFFSETS_FILE):
+        with open(OFFSETS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_offsets(offsets):
+    """Сохраняет прогресс пролистывания"""
+    with open(OFFSETS_FILE, "w", encoding="utf-8") as f:
+        json.dump(offsets, f, ensure_ascii=False, indent=4)
 
 def get_processed_links():
     if not os.path.exists(PROCESSED_FILE): return []
@@ -30,7 +45,7 @@ def add_to_processed_list(link):
 def send_photo_to_telegram(image_url, caption):
     """Отправляет картинку в Telegram"""
     if not TG_DA_BOT_TOKEN or not TG_CHAT_ID:
-        print("❌ Ошибка: Ключи Telegram не найдены в Secrets!")
+        print("❌ Ошибка: Ключи Telegram не найдены!")
         return False
         
     url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
@@ -45,15 +60,21 @@ def send_photo_to_telegram(image_url, caption):
     if response.status_code == 200:
         return True
     else:
-        print(f"❌ Ошибка Telegram (возможно неверный формат): {response.text}")
+        print(f"❌ Ошибка Telegram: {response.text}")
         return False
 
 def main():
     processed = get_processed_links()
+    offsets = load_offsets()
 
-    for url in RSS_URLS:
-        game_name = url.split('=')[-1].replace('+', ' ')
-        print(f"\n🔍 Ищем арты по запросу: {game_name}")
+    for game_name, base_url in GAMES.items():
+        # Достаем текущий сдвиг (начинаем с 0, если игры еще не было в памяти)
+        current_offset = offsets.get(game_name, 0)
+        
+        # Подставляем параметр прокрутки ленты в ссылку
+        url = f"{base_url}&offset={current_offset}"
+        
+        print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг в архиве: {current_offset})")
         
         try:
             feed = feedparser.parse(url)
@@ -61,36 +82,35 @@ def main():
             print(f"❌ Ошибка чтения ленты для {game_name}: {e}")
             continue
             
+        if not feed.entries:
+            print(f"⚠️ Достигнут конец архива DeviantArt для {game_name}!")
+            continue
+
         count = 0
+        items_checked = 0 # Считаем, сколько постов мы пролистали физически
         
         for entry in feed.entries:
+            items_checked += 1
             art_link = entry.link
-            if art_link in processed: continue
+            
+            if art_link in processed: 
+                continue
 
             title = entry.title
             author = entry.author if hasattr(entry, 'author') else "Неизвестный автор"
             
             # --- ТРЕХУРОВНЕВЫЙ ПОИСК КАРТИНКИ ---
             image_url = None
-            
-            # 1. Проверяем основной контент
             if 'media_content' in entry and len(entry.media_content) > 0:
                 image_url = entry.media_content[0].get('url')
-                
-            # 2. Проверяем миниатюры
             if not image_url and 'media_thumbnail' in entry and len(entry.media_thumbnail) > 0:
                 image_url = entry.media_thumbnail[0].get('url')
-                
-            # 3. Парсим само описание (защита от пикселей-трекеров)
             if not image_url and hasattr(entry, 'description'):
                 soup = BeautifulSoup(entry.description, 'html.parser')
                 for img in soup.find_all('img'):
                     src = img.get('src', '')
-                    if not src: continue
-                    # Отсекаем невидимые пиксели и аватарки
-                    if img.get('width') == '1' or img.get('height') == '1': continue
+                    if not src or img.get('width') == '1' or img.get('height') == '1': continue
                     if 'avatar' in src.lower(): continue
-                    
                     image_url = src
                     break
                     
@@ -101,7 +121,6 @@ def main():
             print(f"🖼 Отправляем: {title}")
             caption = f"🎨 <b>{title}</b>\n👤 Автор: {author}\n\n🔗 <a href='{art_link}'>Оригинал на DeviantArt</a>"
             
-            # Если Телеграм всё-таки подавится ссылкой, скрипт не упадет, а просто пойдет дальше
             if send_photo_to_telegram(image_url, caption):
                 add_to_processed_list(art_link)
                 count += 1
@@ -112,6 +131,12 @@ def main():
                     
                 print(f"⏳ Ждем {DELAY_SECONDS} сек...")
                 time.sleep(DELAY_SECONDS)
+        
+        # Обновляем сдвиг на количество пролистанных постов, чтобы в следующий раз начать дальше
+        offsets[game_name] = current_offset + items_checked
+
+    # Сохраняем прогресс пролистывания в файл
+    save_offsets(offsets)
 
 if __name__ == "__main__":
     main()
