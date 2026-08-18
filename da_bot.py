@@ -4,6 +4,7 @@ import json
 import feedparser
 import requests
 import cloudscraper
+import urllib.parse
 from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
@@ -42,7 +43,6 @@ def add_to_processed_list(link):
 
 def send_photo_to_telegram(image_url, caption):
     if not TG_DA_BOT_TOKEN or not TG_CHAT_ID:
-        print("❌ Ошибка: Ключи Telegram не найдены!")
         return False
         
     url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
@@ -64,46 +64,57 @@ def main():
     processed = get_processed_links()
     offsets = load_offsets()
 
-    # 🔥 ПРИТВОРЯЕМСЯ МОБИЛЬНЫМ ТЕЛЕФОНОМ ANDROID 🔥
+    # Маскировка под Android для тех мостов, которые передают User-Agent дальше
     scraper = cloudscraper.create_scraper(
-        browser={
-            'browser': 'chrome',
-            'platform': 'android',
-            'desktop': False
-        }
+        browser={'browser': 'chrome', 'platform': 'android', 'desktop': False}
     )
-    
-    # Жестко прописываем заголовки, как у реального смартфона
     scraper.headers.update({
         "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Sec-Ch-Ua-Mobile": "?1",
-        "Sec-Ch-Ua-Platform": "\"Android\""
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
     })
+
+    # 🔥 СПИСОК МОСТОВ (ПРОКСИ-КАРУСЕЛЬ) 🔥
+    PROXY_BRIDGES = [
+        "https://api.codetabs.com/v1/proxy?quest={url}",
+        "https://corsproxy.io/?{encoded_url}",
+        "https://api.allorigins.win/raw?url={encoded_url}"
+    ]
 
     for game_name, base_url in GAMES.items():
         current_offset = offsets.get(game_name, 0)
-        url = f"{base_url}&offset={current_offset}"
+        target_url = f"{base_url}&offset={current_offset}"
         
         print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг: {current_offset})")
         
-        try:
-            # Стучимся от лица Android-устройства
-            response = scraper.get(url, timeout=15)
+        feed = None
+        
+        # Стучимся во все мосты по очереди
+        for bridge in PROXY_BRIDGES:
+            encoded_url = urllib.parse.quote(target_url, safe="")
+            proxy_url = bridge.format(url=target_url, encoded_url=encoded_url)
+            bridge_name = bridge.split('/')[2]
             
-            if response.status_code != 200:
-                print(f"❌ CloudFront всё равно блокирует (Мобильная маскировка). Код: {response.status_code}")
+            print(f"   [~] Пробуем мост: {bridge_name} ...")
+            try:
+                response = scraper.get(proxy_url, timeout=15)
+                if response.status_code == 200:
+                    temp_feed = feedparser.parse(response.content)
+                    
+                    # Проверяем, что мост вернул именно ленту с артами, а не страницу-заглушку
+                    if temp_feed.entries:
+                        print(f"   ✅ Защита пробита через {bridge_name}!")
+                        feed = temp_feed
+                        break
+                    else:
+                        print("   ⚠️ Сервер вернул пустоту (мост заблокирован).")
+                else:
+                    print(f"   ❌ Блок (Код {response.status_code})")
+            except Exception as e:
+                print(f"   ❌ Ошибка соединения (Таймаут)")
                 continue
-                
-            feed = feedparser.parse(response.content)
-            
-        except Exception as e:
-            print(f"❌ Ошибка сети: {e}")
-            continue
-            
-        if not feed.entries:
-            print(f"⚠️ Достигнут конец архива (или пустой ответ) для {game_name}!")
+
+        if not feed or not feed.entries:
+            print(f"⚠️ Все мосты заблокированы для {game_name}! Инженеры DA работают хорошо.")
             continue
 
         count = 0
@@ -134,7 +145,6 @@ def main():
                     break
                     
             if not image_url:
-                print(f"⚠️ Пропуск: нет валидной картинки для '{title}'")
                 continue
                 
             print(f"🖼 Отправляем: {title}")
