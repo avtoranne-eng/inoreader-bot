@@ -5,7 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
-TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN")
+TG_DA_BOT_TOKEN = os.environ.get("TG_DA_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 # --- СПИСОК ИГР ---
@@ -29,11 +29,11 @@ def add_to_processed_list(link):
 
 def send_photo_to_telegram(image_url, caption):
     """Отправляет картинку в Telegram"""
-    if not TG_BOT_TOKEN or not TG_CHAT_ID:
+    if not TG_DA_BOT_TOKEN or not TG_CHAT_ID:
         print("❌ Ошибка: Ключи Telegram не найдены в Secrets!")
         return False
         
-    url = f"https://api.telegram.org/bot{TG_BOT_TOKEN}/sendPhoto"
+    url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
     data = {
         "chat_id": TG_CHAT_ID,
         "photo": image_url,
