@@ -1,20 +1,19 @@
 import os
 import time
 import json
-import feedparser
 import requests
-import cloudscraper
-import urllib.parse
-from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
 TG_DA_BOT_TOKEN = os.environ.get("TG_DA_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
+DA_CLIENT_ID = os.environ.get("DA_CLIENT_ID")
+DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 
 # --- БАЗА ИГР ---
+# Теперь пишем поисковые запросы чистым текстом
 GAMES = {
-    "Detroit become human": "https://backend.deviantart.com/rss.xml?q=Detroit+become+human",
-    "Resident evil": "https://backend.deviantart.com/rss.xml?q=Resident+evil"
+    "Detroit become human": "Detroit become human",
+    "Resident evil": "Resident evil"
 }
 
 OFFSETS_FILE = "offsets.json"
@@ -22,15 +21,30 @@ PROCESSED_FILE = "processed_arts.txt"
 POSTS_PER_GAME = 5   
 DELAY_SECONDS = 15   
 
-def load_offsets():
-    if os.path.exists(OFFSETS_FILE):
-        with open(OFFSETS_FILE, "r", encoding="utf-8") as f:
+def get_da_token():
+    """Получает официальный токен доступа от DeviantArt API"""
+    url = "https://www.deviantart.com/oauth2/token"
+    data = {
+        "grant_type": "client_credentials",
+        "client_id": DA_CLIENT_ID,
+        "client_secret": DA_CLIENT_SECRET
+    }
+    response = requests.post(url, data=data)
+    if response.status_code == 200:
+        return response.json().get("access_token")
+    else:
+        print(f"❌ Ошибка авторизации в DeviantArt API: {response.text}")
+        return None
+
+def load_json(filename):
+    if os.path.exists(filename):
+        with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
     return {}
 
-def save_offsets(offsets):
-    with open(OFFSETS_FILE, "w", encoding="utf-8") as f:
-        json.dump(offsets, f, ensure_ascii=False, indent=4)
+def save_json(filename, data):
+    with open(filename, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=4)
 
 def get_processed_links():
     if not os.path.exists(PROCESSED_FILE): return []
@@ -43,6 +57,7 @@ def add_to_processed_list(link):
 
 def send_photo_to_telegram(image_url, caption):
     if not TG_DA_BOT_TOKEN or not TG_CHAT_ID:
+        print("❌ Ошибка: Ключи Telegram не найдены!")
         return False
         
     url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
@@ -61,90 +76,78 @@ def send_photo_to_telegram(image_url, caption):
         return False
 
 def main():
+    if not DA_CLIENT_ID or not DA_CLIENT_SECRET:
+        print("❌ Ошибка: Ключи DA_CLIENT_ID или DA_CLIENT_SECRET не найдены в Secrets!")
+        return
+
+    # Получаем пропуск на сервер
+    token = get_da_token()
+    if not token:
+        return
+
     processed = get_processed_links()
-    offsets = load_offsets()
+    offsets = load_json(OFFSETS_FILE)
 
-    # Маскировка под Android для тех мостов, которые передают User-Agent дальше
-    scraper = cloudscraper.create_scraper(
-        browser={'browser': 'chrome', 'platform': 'android', 'desktop': False}
-    )
-    scraper.headers.update({
-        "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-    })
+    headers = {"Authorization": f"Bearer {token}"}
 
-    # 🔥 СПИСОК МОСТОВ (ПРОКСИ-КАРУСЕЛЬ) 🔥
-    PROXY_BRIDGES = [
-        "https://api.codetabs.com/v1/proxy?quest={url}",
-        "https://corsproxy.io/?{encoded_url}",
-        "https://api.allorigins.win/raw?url={encoded_url}"
-    ]
-
-    for game_name, base_url in GAMES.items():
+    for game_name, query in GAMES.items():
         current_offset = offsets.get(game_name, 0)
-        target_url = f"{base_url}&offset={current_offset}"
+        print(f"\n🔍 Запрос к API: {game_name} (Сдвиг: {current_offset})")
         
-        print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг: {current_offset})")
+        search_url = "https://www.deviantart.com/api/v1/oauth2/browse/search"
+        params = {
+            "q": query,
+            "offset": current_offset,
+            "limit": 24,
+            "mature_content": "true"  # Разрешаем контент без цензуры (если нужно)
+        }
         
-        feed = None
-        
-        # Стучимся во все мосты по очереди
-        for bridge in PROXY_BRIDGES:
-            encoded_url = urllib.parse.quote(target_url, safe="")
-            proxy_url = bridge.format(url=target_url, encoded_url=encoded_url)
-            bridge_name = bridge.split('/')[2]
+        try:
+            response = requests.get(search_url, headers=headers, params=params, timeout=15)
             
-            print(f"   [~] Пробуем мост: {bridge_name} ...")
-            try:
-                response = scraper.get(proxy_url, timeout=15)
-                if response.status_code == 200:
-                    temp_feed = feedparser.parse(response.content)
-                    
-                    # Проверяем, что мост вернул именно ленту с артами, а не страницу-заглушку
-                    if temp_feed.entries:
-                        print(f"   ✅ Защита пробита через {bridge_name}!")
-                        feed = temp_feed
-                        break
-                    else:
-                        print("   ⚠️ Сервер вернул пустоту (мост заблокирован).")
-                else:
-                    print(f"   ❌ Блок (Код {response.status_code})")
-            except Exception as e:
-                print(f"   ❌ Ошибка соединения (Таймаут)")
+            if response.status_code != 200:
+                print(f"❌ Ошибка API DeviantArt: Код {response.status_code} - {response.text}")
                 continue
-
-        if not feed or not feed.entries:
-            print(f"⚠️ Все мосты заблокированы для {game_name}! Инженеры DA работают хорошо.")
+                
+            data = response.json()
+            results = data.get("results", [])
+            
+        except Exception as e:
+            print(f"❌ Ошибка сети: {e}")
+            continue
+            
+        if not results:
+            print(f"⚠️ Достигнут конец архива для {game_name}!")
             continue
 
         count = 0
         items_checked = 0 
         
-        for entry in feed.entries:
+        for item in results:
             items_checked += 1
-            art_link = entry.link
+            art_link = item.get("url")
             
-            if art_link in processed: 
+            if not art_link or art_link in processed: 
                 continue
 
-            title = entry.title
-            author = entry.author if hasattr(entry, 'author') else "Неизвестный автор"
+            title = item.get("title", "Без названия")
+            author_info = item.get("author", {})
+            author = author_info.get("username", "Неизвестный автор")
             
+            # Официальный API сразу отдает прямую ссылку на качественную картинку
             image_url = None
-            if 'media_content' in entry and len(entry.media_content) > 0:
-                image_url = entry.media_content[0].get('url')
-            if not image_url and 'media_thumbnail' in entry and len(entry.media_thumbnail) > 0:
-                image_url = entry.media_thumbnail[0].get('url')
-            if not image_url and hasattr(entry, 'description'):
-                soup = BeautifulSoup(entry.description, 'html.parser')
-                for img in soup.find_all('img'):
-                    src = img.get('src', '')
-                    if not src or img.get('width') == '1' or img.get('height') == '1': continue
-                    if 'avatar' in src.lower(): continue
-                    image_url = src
-                    break
+            content = item.get("content")
+            if content and "src" in content:
+                image_url = content["src"]
+            
+            # Запасной вариант через превью, если контент заблокирован автором
+            if not image_url:
+                preview = item.get("preview")
+                if preview and "src" in preview:
+                    image_url = preview["src"]
                     
             if not image_url:
+                print(f"⚠️ Пропуск: нет прямой картинки для '{title}'")
                 continue
                 
             print(f"🖼 Отправляем: {title}")
@@ -161,9 +164,10 @@ def main():
                 print(f"⏳ Ждем {DELAY_SECONDS} сек...")
                 time.sleep(DELAY_SECONDS)
         
+        # Сохраняем новый сдвиг для этой игры
         offsets[game_name] = current_offset + items_checked
 
-    save_offsets(offsets)
+    save_json(OFFSETS_FILE, offsets)
 
 if __name__ == "__main__":
     main()
