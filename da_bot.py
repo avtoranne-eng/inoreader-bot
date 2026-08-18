@@ -9,11 +9,10 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 DA_CLIENT_ID = os.environ.get("DA_CLIENT_ID")
 DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 
-# --- БАЗА ИГР ---
-# Теперь пишем поисковые запросы чистым текстом
+# --- БАЗА ИГР (формат тегов для официального API) ---
 GAMES = {
-    "Detroit become human": "Detroit become human",
-    "Resident evil": "Resident evil"
+    "Detroit become human": "detroitbecomehuman",
+    "Resident evil": "residentevil"
 }
 
 OFFSETS_FILE = "offsets.json"
@@ -80,7 +79,6 @@ def main():
         print("❌ Ошибка: Ключи DA_CLIENT_ID или DA_CLIENT_SECRET не найдены в Secrets!")
         return
 
-    # Получаем пропуск на сервер
     token = get_da_token()
     if not token:
         return
@@ -90,16 +88,17 @@ def main():
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    for game_name, query in GAMES.items():
+    for game_name, tag in GAMES.items():
         current_offset = offsets.get(game_name, 0)
-        print(f"\n🔍 Запрос к API: {game_name} (Сдвиг: {current_offset})")
+        print(f"\n🔍 Запрос к API (тег: {tag}): {game_name} (Сдвиг: {current_offset})")
         
-        search_url = "https://www.deviantart.com/api/v1/oauth2/browse/search"
+        # Исправленный официальный эндпоинт для работы с тегами
+        search_url = "https://www.deviantart.com/api/v1/oauth2/browse/tag"
         params = {
-            "q": query,
+            "tag": tag,
             "offset": current_offset,
             "limit": 24,
-            "mature_content": "true"  # Разрешаем контент без цензуры (если нужно)
+            "mature_content": "true"
         }
         
         try:
@@ -134,13 +133,11 @@ def main():
             author_info = item.get("author", {})
             author = author_info.get("username", "Неизвестный автор")
             
-            # Официальный API сразу отдает прямую ссылку на качественную картинку
             image_url = None
             content = item.get("content")
             if content and "src" in content:
                 image_url = content["src"]
             
-            # Запасной вариант через превью, если контент заблокирован автором
             if not image_url:
                 preview = item.get("preview")
                 if preview and "src" in preview:
@@ -164,7 +161,6 @@ def main():
                 print(f"⏳ Ждем {DELAY_SECONDS} сек...")
                 time.sleep(DELAY_SECONDS)
         
-        # Сохраняем новый сдвиг для этой игры
         offsets[game_name] = current_offset + items_checked
 
     save_json(OFFSETS_FILE, offsets)
