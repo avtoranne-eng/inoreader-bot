@@ -3,6 +3,7 @@ import time
 import json
 import feedparser
 import requests
+import cloudscraper
 from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
@@ -19,12 +20,6 @@ OFFSETS_FILE = "offsets.json"
 PROCESSED_FILE = "processed_arts.txt"
 POSTS_PER_GAME = 5   
 DELAY_SECONDS = 15   
-
-# Маскируемся под обычный браузер Chrome, чтобы пробить защиту CloudFront
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8"
-}
 
 def load_offsets():
     if os.path.exists(OFFSETS_FILE):
@@ -69,6 +64,15 @@ def main():
     processed = get_processed_links()
     offsets = load_offsets()
 
+    # 🔥 Создаем обходчик CloudFront 🔥
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'windows',
+            'desktop': True
+        }
+    )
+
     for game_name, base_url in GAMES.items():
         current_offset = offsets.get(game_name, 0)
         url = f"{base_url}&offset={current_offset}"
@@ -76,14 +80,13 @@ def main():
         print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг: {current_offset})")
         
         try:
-            # 1. Стучимся на сайт под видом Google Chrome
-            response = requests.get(url, headers=HEADERS, timeout=15)
+            # Стучимся через cloudscraper
+            response = scraper.get(url, timeout=15)
             
             if response.status_code != 200:
-                print(f"❌ CloudFront всё еще ругается. Код ошибки: {response.status_code}")
+                print(f"❌ CloudFront наглухо блокирует. Код: {response.status_code}")
                 continue
                 
-            # 2. Передаем полученный чистый код парсеру
             feed = feedparser.parse(response.content)
             
         except Exception as e:
