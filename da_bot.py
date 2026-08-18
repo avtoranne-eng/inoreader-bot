@@ -3,7 +3,7 @@ import time
 import json
 import feedparser
 import requests
-import urllib.parse
+import cloudscraper
 from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
@@ -64,23 +64,36 @@ def main():
     processed = get_processed_links()
     offsets = load_offsets()
 
+    # 🔥 ПРИТВОРЯЕМСЯ МОБИЛЬНЫМ ТЕЛЕФОНОМ ANDROID 🔥
+    scraper = cloudscraper.create_scraper(
+        browser={
+            'browser': 'chrome',
+            'platform': 'android',
+            'desktop': False
+        }
+    )
+    
+    # Жестко прописываем заголовки, как у реального смартфона
+    scraper.headers.update({
+        "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Mobile Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Sec-Ch-Ua-Mobile": "?1",
+        "Sec-Ch-Ua-Platform": "\"Android\""
+    })
+
     for game_name, base_url in GAMES.items():
         current_offset = offsets.get(game_name, 0)
-        target_url = f"{base_url}&offset={current_offset}"
+        url = f"{base_url}&offset={current_offset}"
         
         print(f"\n🔍 Ищем арты по: {game_name} (Сдвиг: {current_offset})")
         
         try:
-            # 🔥 ИСПОЛЬЗУЕМ PROXY-МОСТ 🔥
-            # Кодируем нашу ссылку, чтобы безопасно передать её через AllOrigins
-            encoded_url = urllib.parse.quote(target_url, safe="")
-            proxy_url = f"https://api.allorigins.win/raw?url={encoded_url}"
-            
-            # Стучимся не напрямую в DeviantArt, а просим AllOrigins скачать для нас XML
-            response = requests.get(proxy_url, timeout=20)
+            # Стучимся от лица Android-устройства
+            response = scraper.get(url, timeout=15)
             
             if response.status_code != 200:
-                print(f"❌ Прокси-сервер не смог пробиться. Код: {response.status_code}")
+                print(f"❌ CloudFront всё равно блокирует (Мобильная маскировка). Код: {response.status_code}")
                 continue
                 
             feed = feedparser.parse(response.content)
