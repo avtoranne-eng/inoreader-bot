@@ -9,10 +9,10 @@ TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 DA_CLIENT_ID = os.environ.get("DA_CLIENT_ID")
 DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 
-# --- БАЗА ИГР ---
+# --- ТВОИ ПРЯМЫЕ ССЫЛКИ НА ПОИСК ---
 GAMES = {
-    "Detroit become human": "Detroit become human",
-    "Resident evil": "Resident evil"
+    "Detroit become human": "https://www.deviantart.com/search?q=Detroit+become+human",
+    "Resident evil": "https://www.deviantart.com/search?q=Resident+evil"
 }
 
 OFFSETS_FILE = "offsets.json"
@@ -32,7 +32,7 @@ def get_da_token():
     if response.status_code == 200:
         return response.json().get("access_token")
     else:
-        print(f"❌ Ошибка авторизации в DeviantArt API: {response.text}")
+        print(f"DA Auth Error: {response.text}")
         return None
 
 def load_json(filename):
@@ -56,7 +56,7 @@ def add_to_processed_list(link):
 
 def send_photo_to_telegram(image_url, caption):
     if not TG_DA_BOT_TOKEN or not TG_CHAT_ID:
-        print("❌ Ошибка: Ключи Telegram не найдены!")
+        print("Telegram keys not found!")
         return False
         
     url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
@@ -71,12 +71,12 @@ def send_photo_to_telegram(image_url, caption):
     if response.status_code == 200:
         return True
     else:
-        print(f"❌ Ошибка Telegram: {response.text}")
+        print(f"Telegram Error: {response.text}")
         return False
 
 def main():
     if not DA_CLIENT_ID or not DA_CLIENT_SECRET:
-        print("❌ Ошибка: Ключи DA_CLIENT_ID или DA_CLIENT_SECRET не найдены в Secrets!")
+        print("Error: DA API keys not found in Secrets!")
         return
 
     token = get_da_token()
@@ -88,35 +88,38 @@ def main():
 
     headers = {"Authorization": f"Bearer {token}"}
 
-    for game_name, query in GAMES.items():
-        current_offset = offsets.get(game_name, 0)
-        print(f"\n🔍 Поиск через API: {game_name} (Сдвиг: {current_offset})")
+    for game_name, search_url in GAMES.items():
+        # Достаем поисковый запрос из твоей ссылки (например: detroitbecomehuman)
+        query_part = search_url.split("q=")[1]
+        tag_name = query_part.replace("+", "").lower()
         
-        # 🔥 Официальный рабочий эндпоинт поиска
-        search_url = "https://www.deviantart.com/api/v1/oauth2/deviation/search"
+        current_offset = offsets.get(game_name, 0)
+        print(f"Search API: {game_name} | Tag: {tag_name} | Offset: {current_offset}")
+        
+        api_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
         params = {
-            "q": query,
+            "tag": tag_name,
             "offset": current_offset,
             "limit": 24,
             "mature_content": "true"
         }
         
         try:
-            response = requests.get(search_url, headers=headers, params=params, timeout=15)
+            response = requests.get(api_url, headers=headers, params=params, timeout=15)
             
             if response.status_code != 200:
-                print(f"❌ Ошибка API DeviantArt: Код {response.status_code} - {response.text}")
+                print(f"API Error: Code {response.status_code} - {response.text}")
                 continue
                 
             data = response.json()
             results = data.get("results", [])
             
         except Exception as e:
-            print(f"❌ Ошибка сети: {e}")
+            print(f"Network Error: {e}")
             continue
             
         if not results:
-            print(f"⚠️ Достигнут конец архива для {game_name}!")
+            print(f"End of archive reached for {game_name}")
             continue
 
         count = 0
@@ -129,9 +132,9 @@ def main():
             if not art_link or art_link in processed: 
                 continue
 
-            title = item.get("title", "Без названия")
+            title = item.get("title", "No title")
             author_info = item.get("author", {})
-            author = author_info.get("username", "Неизвестный автор")
+            author = author_info.get("username", "Unknown author")
             
             image_url = None
             content = item.get("content")
@@ -144,21 +147,21 @@ def main():
                     image_url = preview["src"]
                     
             if not image_url:
-                print(f"⚠️ Пропуск: нет прямой картинки для '{title}'")
+                print(f"Skip: no direct image for '{title}'")
                 continue
                 
-            print(f"🖼 Отправляем: {title}")
-            caption = f"🎨 <b>{title}</b>\n👤 Автор: {author}\n\n🔗 <a href='{art_link}'>Оригинал на DeviantArt</a>"
+            print(f"Sending to Telegram: {title}")
+            caption = f"<b>{title}</b>\nAuthor: {author}\n\n<a href='{art_link}'>Original on DeviantArt</a>"
             
             if send_photo_to_telegram(image_url, caption):
                 add_to_processed_list(art_link)
                 count += 1
                 
                 if count >= POSTS_PER_GAME:
-                    print(f"🛑 Собрали {POSTS_PER_GAME} артов для {game_name}.")
+                    print(f"Collected {POSTS_PER_GAME} arts for {game_name}.")
                     break
                     
-                print(f"⏳ Ждем {DELAY_SECONDS} сек...")
+                print(f"Waiting {DELAY_SECONDS} sec...")
                 time.sleep(DELAY_SECONDS)
         
         offsets[game_name] = current_offset + items_checked
