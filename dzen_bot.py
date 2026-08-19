@@ -2,11 +2,13 @@ import os
 import time
 import feedparser
 import re
+import google.generativeai as genai
 
 # --- НАСТРОЙКИ ---
-RSS_URL = "https://bg.raindrop.io/rss/public/74027356"
+RSS_URL = "https://avtoranne.raindrop.page/dzen-74027356/feed"
 PROCESSED_FILE = "processed_dzen.txt"
 OUTPUT_DIR = "dzen_articles"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Создаем папку для статей, если её нет
 if not os.path.exists(OUTPUT_DIR):
@@ -24,18 +26,21 @@ def add_to_processed(link):
 
 def clean_filename(title):
     # Убираем запрещенные символы из названия файла
-    return re.sub(r'[\\/*?:"<>|]', "", title)[:50]
+    return re.sub(r'[\\/*?:"<>|]', "", title)[:50].strip()
 
 def generate_text_from_ai(prompt):
-    """
-    ЗДЕСЬ ДОЛЖЕН БЫТЬ ТВОЙ КОД ОБРАЩЕНИЯ К НЕЙРОСЕТИ.
-    Например, вызов клиента OpenAI или другой API, который ты используешь.
-    Возвращаем готовый текст.
-    """
-    # Пример (замени на свой рабочий код генерации!):
-    # response = client.chat.completions.create(model="gpt-4o", messages=[{"role": "user", "content": prompt}])
-    # return response.choices[0].message.content
-    pass
+    if not GEMINI_API_KEY:
+        print("❌ Ошибка: Ключ GEMINI_API_KEY не найден!")
+        return None
+        
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-3.5-flash-lite")
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"❌ Ошибка при обращении к нейросети: {e}")
+        return None
 
 def main():
     processed = get_processed_links()
@@ -55,7 +60,7 @@ def main():
         
         print(f"📝 Пишем лонгрид для Дзена: {title}")
         
-        # --- ПРОМПТ ДЛЯ ДЗЕНА (SEO и объем) ---
+        # --- ПРОМПТ ДЛЯ ДЗЕНА ---
         prompt = (
             f"Твоя роль: элитный игровой журналист, SEO-специалист и автор популярного канала на Дзене Level UP. "
             f"Твоя задача: Написать захватывающую, глубокую и очень длинную лонгрид-статью (строго от 5000 символов), которая удержит читателя до последней строчки и привлечет поисковый трафик из Яндекса и Google. "
@@ -74,7 +79,6 @@ def main():
         
         if article_text:
             safe_title = clean_filename(title)
-            # СОХРАНЯЕМ СТРОГО В .md ДЛЯ КРАСИВОГО ОТОБРАЖЕНИЯ НА GITHUB
             filepath = os.path.join(OUTPUT_DIR, f"{safe_title}.md")
             
             with open(filepath, "w", encoding="utf-8") as f:
@@ -82,7 +86,7 @@ def main():
                 
             print(f"✅ Статья сохранена: {filepath}")
             add_to_processed(link)
-            time.sleep(5) # Пауза между запросами
+            time.sleep(5) 
 
 if __name__ == "__main__":
     main()
