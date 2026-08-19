@@ -2,11 +2,13 @@ import os
 import time
 import feedparser
 import re
+import google.generativeai as genai
 
 # --- НАСТРОЙКИ ---
-RSS_URL = "https://bg.raindrop.io/rss/public/74027357"
+RSS_URL = "https://avtoranne.raindrop.page/max-74027357/feed"
 PROCESSED_FILE = "processed_max.txt"
 OUTPUT_DIR = "max_posts"
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 
 # Создаем папку для постов, если её нет
 if not os.path.exists(OUTPUT_DIR):
@@ -23,13 +25,21 @@ def add_to_processed(link):
         f.write(link + "\n")
 
 def clean_filename(title):
-    return re.sub(r'[\\/*?:"<>|]', "", title)[:50]
+    return re.sub(r'[\\/*?:"<>|]', "", title)[:50].strip()
 
 def generate_text_from_ai(prompt):
-    """
-    ЗДЕСЬ ДОЛЖЕН БЫТЬ ТВОЙ КОД ОБРАЩЕНИЯ К НЕЙРОСЕТИ.
-    """
-    pass
+    if not GEMINI_API_KEY:
+        print("❌ Ошибка: Ключ GEMINI_API_KEY не найден!")
+        return None
+        
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        model = genai.GenerativeModel("gemini-3.5-flash-lite")
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        print(f"❌ Ошибка при обращении к нейросети: {e}")
+        return None
 
 def main():
     processed = get_processed_links()
@@ -49,11 +59,11 @@ def main():
         
         print(f"🔥 Пишем пост для Макса: {title}")
         
-        # --- ПРОМПТ ДЛЯ МАКСА (Жесткий лимит) ---
+        # --- ПРОМПТ ДЛЯ МАКСА ---
         prompt = (
             f"Твоя роль: острый на язык, бескомпромиссный игровой журналист канала Level UP. "
             f"Твоя задача: Написать емкий, динамичный и провокационный пост по новости. "
-            f"КРИТИЧЕСКОЕ ПРАВИЛО: Объем готового текста должен быть строго до 3500 символов (включая пробелы). Используй лимит по максимуму, но не смей превышать эту цифру! "
+            f"КРИТИЧЕСКОЕ ПРАВИЛО: Объем готового текста должен быть строго от 3500 до 4000 символов (включая пробелы). Используй лимит по максимуму, но не смей превышать эту цифру! "
             f"Правила и структура: "
             f"1. Напиши хлесткий, цепляющий заголовок без воды. "
             f"2. Выдели самую суть инфоповода максимально коротко, а затем погрузись в детали с долей иронии и сарказма. "
@@ -68,7 +78,6 @@ def main():
         
         if article_text:
             safe_title = clean_filename(title)
-            # СОХРАНЯЕМ СТРОГО В .md
             filepath = os.path.join(OUTPUT_DIR, f"{safe_title}.md")
             
             with open(filepath, "w", encoding="utf-8") as f:
