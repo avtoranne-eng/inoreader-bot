@@ -4,7 +4,7 @@ import feedparser
 import re
 
 # --- НАСТРОЙКИ ---
-RSS_URL = "https://avtoranne.raindrop.page/dzen-74027356"
+RSS_URL = "https://bg.raindrop.io/rss/public/74027356"
 PROCESSED_FILE = "processed_dzen.txt"
 OUTPUT_DIR = "dzen_articles"
 
