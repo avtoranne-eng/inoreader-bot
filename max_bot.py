@@ -4,7 +4,7 @@ import feedparser
 import re
 
 # --- НАСТРОЙКИ ---
-RSS_URL = "https://avtoranne.raindrop.page/max-74027357"
+RSS_URL = "https://bg.raindrop.io/rss/public/74027357"
 PROCESSED_FILE = "processed_max.txt"
 OUTPUT_DIR = "max_posts"
 
