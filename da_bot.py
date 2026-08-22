@@ -17,7 +17,7 @@ GAMES = {
 
 OFFSETS_FILE = "offsets.json"
 PROCESSED_FILE = "processed_arts.txt"
-POSTS_PER_GAME = 5   
+POSTS_PER_GAME = 10   
 DELAY_SECONDS = 15   
 
 def get_da_token():
@@ -100,7 +100,7 @@ def main():
         params = {
             "tag": tag_name,
             "offset": current_offset,
-            "limit": 24,
+            "limit": 50,
             "mature_content": "true"
         }
         
