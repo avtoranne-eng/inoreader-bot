@@ -31,10 +31,11 @@ jobs:
           DA_CLIENT_SECRET: ${{ secrets.DA_CLIENT_SECRET }}
         run: python da_bot.py
 
-      - name: Commit processed arts
+      - name: Commit and push changes
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "🎨 Обновлен список скачанных артов" || echo "Новых артов нет"
+          git add -A
+          git commit -m "🎨 Обновлен список скачанных артов" || echo "Нет изменений для сохранения"
+          git pull --rebase origin main
           git push
