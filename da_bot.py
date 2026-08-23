@@ -13,9 +13,24 @@ DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 
 # --- ТВОИ ПРЯМЫЕ ССЫЛКИ НА ПОИСК ---
 GAMES = {
-    "Detroit become human": "https://www.deviantart.com/search?q=Detroit+become+human",
-    "DBH": "https://www.deviantart.com/search?q=DBH",
-    "Resident evil": "https://www.deviantart.com/search?q=Resident+evil"
+    # --- Detroit: Become Human ---
+    "Detroit Main": "https://www.deviantart.com/search?q=detroitbecomehuman",
+    "DBH": "https://www.deviantart.com/search?q=dbh",
+    "Connor": "https://www.deviantart.com/search?q=connor",
+    "rk800": "https://www.deviantart.com/search?q=rk800",
+    "Hank": "https://www.deviantart.com/search?q=hank",
+    "Markus": "https://www.deviantart.com/search?q=markusdbh",
+    "Kara": "https://www.deviantart.com/search?q=kara",
+    "ax400": "https://www.deviantart.com/search?q=ax400",
+    "Alice": "https://www.deviantart.com/search?q=dbhalice",
+    "Fanart": "https://www.deviantart.com/search?q=detroitbecomehumanfanart",
+    "DBH Fanart": "https://www.deviantart.com/search?q=dbhfanart",
+    
+    # --- Resident Evil ---
+    "Resident Evil Main": "https://www.deviantart.com/search?q=residentevil",
+    "Leon Kennedy": "https://www.deviantart.com/search?q=leonkennedy",
+    "Ada Wong": "https://www.deviantart.com/search?q=adawong",
+    "Jill Valentine": "https://www.deviantart.com/search?q=jillvalentine"
 }
 
 OFFSETS_FILE = "offsets.json"
