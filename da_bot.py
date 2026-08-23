@@ -18,11 +18,8 @@ GAMES = {
     "DBH": "https://www.deviantart.com/search?q=dbh",
     "Connor": "https://www.deviantart.com/search?q=connor",
     "rk800": "https://www.deviantart.com/search?q=rk800",
-    "Hank": "https://www.deviantart.com/search?q=hank",
     "Markus": "https://www.deviantart.com/search?q=markusdbh",
-    "Kara": "https://www.deviantart.com/search?q=kara",
     "ax400": "https://www.deviantart.com/search?q=ax400",
-    "Alice": "https://www.deviantart.com/search?q=dbhalice",
     "Fanart": "https://www.deviantart.com/search?q=detroitbecomehumanfanart",
     "DBH Fanart": "https://www.deviantart.com/search?q=dbhfanart",
     
