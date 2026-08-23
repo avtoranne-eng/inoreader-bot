@@ -254,3 +254,4 @@ The Blood of Dawnwalker Won’t Run at 60fps on Console, and Fans Aren’t Happy
 The Duskbloods Network Test Closed Early as FromSoftware Apologizes for 'Game Server Issues'
 Intergalactic: The Heretic Prophet Cast Expands With Uncharted, The Last of Us Veteran
 Мод превращает Prey в кооператив на 16 игроков с синхронизацией сюжета и физики
+Новый мод для Skyrim добавляет локализованный урон и переработанный баланс оружия
