@@ -3,6 +3,7 @@ import time
 import json
 import requests
 import urllib.parse
+import re
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
 TG_DA_BOT_TOKEN = os.environ.get("TG_DA_BOT_TOKEN")
@@ -14,7 +15,6 @@ DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 GAMES = {
     "Detroit become human": "https://www.deviantart.com/search?q=Detroit+become+human",
     "DBH": "https://www.deviantart.com/search?q=DBH",
-    "Detroit: become human": "https://www.deviantart.com/search?q=Detroit%3A+become+human",
     "Resident evil": "https://www.deviantart.com/search?q=Resident+evil"
 }
 
@@ -69,38 +69,44 @@ def send_photo_to_telegram(image_url, caption):
     response = requests.post(url, data=data)
     return response.status_code == 200
 
+def generate_tag(search_url):
+    try:
+        query_part = search_url.split("q=")[1].split("&")[0]
+        query_part = urllib.parse.unquote_plus(query_part)
+        tag_name = re.sub(r'[^a-zA-Z0-9]', '', query_part).lower()
+        return tag_name
+    except IndexError:
+        return "unknown"
+
 def main():
     if not DA_CLIENT_ID or not DA_CLIENT_SECRET:
-        print("Error: DA API keys not found in Secrets!")
+        print("❌ Error: DA API keys not found in Secrets!")
         return
 
     token = get_da_token()
     if not token:
+        print("❌ Ошибка авторизации в DeviantArt")
         return
 
     processed = get_processed_links()
     offsets = load_json(OFFSETS_FILE)
     headers = {"Authorization": f"Bearer {token}"}
     
-    # ТЕПЕРЬ ИСПОЛЬЗУЕМ API ПОИСКА (КАК НА САЙТЕ), А НЕ API ХЕШТЕГОВ
-    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/newest"
+    # Возвращаем проверенный API для поиска по тегам
+    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
 
     for game_name, search_url in GAMES.items():
-        # Достаем запрос и превращаем %3A в двоеточие, а плюсы в пробелы
-        try:
-            query_part = search_url.split("q=")[1].split("&")[0]
-            search_query = urllib.parse.unquote_plus(query_part)
-        except IndexError:
+        tag_name = generate_tag(search_url)
+        print(f"\n--- Обработка категории: {game_name} (Тег: #{tag_name}) ---")
+        
+        if tag_name == "unknown":
             continue
             
-        print(f"\n--- Обработка категории: {game_name} (Запрос: '{search_query}') ---")
-        
         count = 0
         
         # --- ЭТАП 1: ПРОВЕРКА НОВИНОК ---
         print("🔍 Ищем свежие арты...")
-        # Передаем параметр 'q' вместо 'tag'
-        params_new = {"q": search_query, "offset": 0, "limit": 50, "mature_content": "true"}
+        params_new = {"tag": tag_name, "offset": 0, "limit": 50, "mature_content": "true"}
         
         try:
             res_new = requests.get(api_url, headers=headers, params=params_new, timeout=15)
@@ -135,8 +141,10 @@ def main():
                         
                         if count >= POSTS_PER_GAME:
                             break
+            else:
+                print(f"❌ Ошибка API (новинки): Код {res_new.status_code} - {res_new.text}")
         except Exception as e:
-            print(f"Ошибка при поиске новинок: {e}")
+            print(f"❌ Системная ошибка при поиске новинок: {e}")
 
         # --- ЭТАП 2: КОПАЕМ АРХИВ ---
         pages_dug = 0
@@ -146,14 +154,14 @@ def main():
                 current_offset = 50 
                 
             print(f"Не хватило {POSTS_PER_GAME - count} артов. Идем в архив на позицию {current_offset}...")
-            params_archive = {"q": search_query, "offset": current_offset, "limit": 50, "mature_content": "true"}
+            params_archive = {"tag": tag_name, "offset": current_offset, "limit": 50, "mature_content": "true"}
             
             try:
                 res_archive = requests.get(api_url, headers=headers, params=params_archive, timeout=15)
                 if res_archive.status_code == 200:
                     results_archive = res_archive.json().get("results", [])
                     if not results_archive:
-                        print("Архив пуст, больше артов по этому запросу нет.")
+                        print("Архив пуст, больше артов по этому тегу нет.")
                         break
                         
                     items_checked = 0
@@ -190,9 +198,10 @@ def main():
                                 
                     offsets[game_name] = current_offset + items_checked
                 else:
+                    print(f"❌ Ошибка API (архив): Код {res_archive.status_code} - {res_archive.text}")
                     break
             except Exception as e:
-                print(f"Ошибка при поиске в архиве: {e}")
+                print(f"❌ Системная ошибка при поиске в архиве: {e}")
                 break
                 
             pages_dug += 1
