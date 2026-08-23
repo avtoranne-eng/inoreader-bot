@@ -2,6 +2,7 @@ import os
 import time
 import json
 import requests
+import urllib.parse
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
 TG_DA_BOT_TOKEN = os.environ.get("TG_DA_BOT_TOKEN")
@@ -12,7 +13,6 @@ DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 # --- ТВОИ ПРЯМЫЕ ССЫЛКИ НА ПОИСК ---
 GAMES = {
     "Detroit become human": "https://www.deviantart.com/search?q=Detroit+become+human",
-    "Detroit become human deviations": "https://www.deviantart.com/search/deviations?q=detroit+become+human",
     "DBH": "https://www.deviantart.com/search?q=DBH",
     "Detroit: become human": "https://www.deviantart.com/search?q=Detroit%3A+become+human",
     "Resident evil": "https://www.deviantart.com/search?q=Resident+evil"
@@ -81,18 +81,26 @@ def main():
     processed = get_processed_links()
     offsets = load_json(OFFSETS_FILE)
     headers = {"Authorization": f"Bearer {token}"}
-    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
+    
+    # ТЕПЕРЬ ИСПОЛЬЗУЕМ API ПОИСКА (КАК НА САЙТЕ), А НЕ API ХЕШТЕГОВ
+    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/newest"
 
     for game_name, search_url in GAMES.items():
-        query_part = search_url.split("q=")[1]
-        tag_name = query_part.replace("+", "").lower()
-        print(f"\n--- Обработка категории: {game_name} ---")
+        # Достаем запрос и превращаем %3A в двоеточие, а плюсы в пробелы
+        try:
+            query_part = search_url.split("q=")[1].split("&")[0]
+            search_query = urllib.parse.unquote_plus(query_part)
+        except IndexError:
+            continue
+            
+        print(f"\n--- Обработка категории: {game_name} (Запрос: '{search_query}') ---")
         
         count = 0
         
-        # --- ЭТАП 1: ПРОВЕРКА НОВИНОК (offset = 0) ---
+        # --- ЭТАП 1: ПРОВЕРКА НОВИНОК ---
         print("🔍 Ищем свежие арты...")
-        params_new = {"tag": tag_name, "offset": 0, "limit": 50, "mature_content": "true"}
+        # Передаем параметр 'q' вместо 'tag'
+        params_new = {"q": search_query, "offset": 0, "limit": 50, "mature_content": "true"}
         
         try:
             res_new = requests.get(api_url, headers=headers, params=params_new, timeout=15)
@@ -121,6 +129,7 @@ def main():
                     
                     if send_photo_to_telegram(image_url, caption):
                         add_to_processed_list(art_link)
+                        processed.append(art_link) # Кратковременная память
                         count += 1
                         time.sleep(DELAY_SECONDS)
                         
@@ -129,21 +138,25 @@ def main():
         except Exception as e:
             print(f"Ошибка при поиске новинок: {e}")
 
-        # --- ЭТАП 2: КОПАЕМ АРХИВ, ЕСЛИ НОВИНОК НЕ ХВАТИЛО ---
-        if count < POSTS_PER_GAME:
+        # --- ЭТАП 2: КОПАЕМ АРХИВ ---
+        pages_dug = 0
+        while count < POSTS_PER_GAME and pages_dug < 5:
             current_offset = offsets.get(game_name, 0)
             if current_offset == 0:
-                current_offset = 50 # Если мы только что смотрели 0, сдвигаемся
+                current_offset = 50 
                 
             print(f"Не хватило {POSTS_PER_GAME - count} артов. Идем в архив на позицию {current_offset}...")
-            params_archive = {"tag": tag_name, "offset": current_offset, "limit": 50, "mature_content": "true"}
+            params_archive = {"q": search_query, "offset": current_offset, "limit": 50, "mature_content": "true"}
             
             try:
                 res_archive = requests.get(api_url, headers=headers, params=params_archive, timeout=15)
                 if res_archive.status_code == 200:
                     results_archive = res_archive.json().get("results", [])
+                    if not results_archive:
+                        print("Архив пуст, больше артов по этому запросу нет.")
+                        break
+                        
                     items_checked = 0
-                    
                     for item in results_archive:
                         items_checked += 1
                         art_link = item.get("url")
@@ -168,16 +181,21 @@ def main():
                         
                         if send_photo_to_telegram(image_url, caption):
                             add_to_processed_list(art_link)
+                            processed.append(art_link) # Кратковременная память
                             count += 1
                             time.sleep(DELAY_SECONDS)
                             
                             if count >= POSTS_PER_GAME:
                                 break
                                 
-                    # Сохраняем сдвиг только если реально ходили в архив
                     offsets[game_name] = current_offset + items_checked
+                else:
+                    break
             except Exception as e:
                 print(f"Ошибка при поиске в архиве: {e}")
+                break
+                
+            pages_dug += 1
 
     save_json(OFFSETS_FILE, offsets)
 
