@@ -28,9 +28,6 @@ GAMES = {
     
     # --- Resident Evil ---
     "Resident Evil Main": "https://www.deviantart.com/search?q=residentevil",
-    "Leon Kennedy": "https://www.deviantart.com/search?q=leonkennedy",
-    "Ada Wong": "https://www.deviantart.com/search?q=adawong",
-    "Jill Valentine": "https://www.deviantart.com/search?q=jillvalentine"
 }
 
 OFFSETS_FILE = "offsets.json"
