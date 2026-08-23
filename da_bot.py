@@ -67,16 +67,29 @@ def send_photo_to_telegram(image_url, caption):
     }
     
     response = requests.post(url, data=data)
+    if response.status_code != 200:
+        print(f"⚠️ Ошибка отправки в ТГ: {response.text}")
     return response.status_code == 200
 
-def generate_tag(search_url):
+def extract_query(search_url):
     try:
         query_part = search_url.split("q=")[1].split("&")[0]
-        query_part = urllib.parse.unquote_plus(query_part)
-        tag_name = re.sub(r'[^a-zA-Z0-9]', '', query_part).lower()
-        return tag_name
+        return urllib.parse.unquote_plus(query_part)
     except IndexError:
-        return "unknown"
+        return ""
+
+def generate_tag(search_query):
+    return re.sub(r'[^a-zA-Z0-9]', '', search_query).lower()
+
+def get_image_url(item):
+    # Умный поиск картинки: пробуем все варианты, включая комиксы
+    if "content" in item and "src" in item["content"]:
+        return item["content"]["src"]
+    if "preview" in item and "src" in item["preview"]:
+        return item["preview"]["src"]
+    if "thumbs" in item and len(item["thumbs"]) > 0:
+        return item["thumbs"][-1]["src"] # Берем самый крупный thumbnail
+    return None
 
 def main():
     if not DA_CLIENT_ID or not DA_CLIENT_SECRET:
@@ -92,76 +105,81 @@ def main():
     offsets = load_json(OFFSETS_FILE)
     headers = {"Authorization": f"Bearer {token}"}
     
-    # Возвращаем проверенный API для поиска по тегам
-    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
+    # API 1: Для свежих артов (строгая хронология по хэштегам)
+    api_tags_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
+    # API 2: Для архива (умный текстовый поиск по самым популярным артам за всё время)
+    api_popular_url = "https://www.deviantart.com/api/v1/oauth2/browse/popular"
 
     for game_name, search_url in GAMES.items():
-        tag_name = generate_tag(search_url)
-        print(f"\n--- Обработка категории: {game_name} (Тег: #{tag_name}) ---")
+        search_query = extract_query(search_url)
+        tag_name = generate_tag(search_query)
         
-        if tag_name == "unknown":
+        if not search_query:
             continue
             
+        print(f"\n--- Обработка категории: {game_name} (Запрос: '{search_query}') ---")
         count = 0
         
-        # --- ЭТАП 1: ПРОВЕРКА НОВИНОК ---
+        # --- ЭТАП 1: ПРОВЕРКА СВЕЖИХ АРТОВ (Хэштеги) ---
         print("🔍 Ищем свежие арты...")
         params_new = {"tag": tag_name, "offset": 0, "limit": 50, "mature_content": "true"}
         
         try:
-            res_new = requests.get(api_url, headers=headers, params=params_new, timeout=15)
+            res_new = requests.get(api_tags_url, headers=headers, params=params_new, timeout=15)
             if res_new.status_code == 200:
                 results_new = res_new.json().get("results", [])
-                
                 for item in results_new:
                     art_link = item.get("url")
                     if not art_link or art_link in processed: 
                         continue
 
-                    title = item.get("title", "No title")
-                    author = item.get("author", {}).get("username", "Unknown author")
-                    
-                    image_url = None
-                    if "content" in item and "src" in item["content"]:
-                        image_url = item["content"]["src"]
-                    elif "preview" in item and "src" in item["preview"]:
-                        image_url = item["preview"]["src"]
-                        
+                    image_url = get_image_url(item)
                     if not image_url:
                         continue
                         
+                    title = item.get("title", "No title")
+                    author = item.get("author", {}).get("username", "Unknown author")
+                    
                     print(f"Новинка! Отправляем: {title}")
                     caption = f"<b>{title}</b>\nAuthor: {author}\n\n<a href='{art_link}'>Original on DeviantArt</a>"
                     
                     if send_photo_to_telegram(image_url, caption):
                         add_to_processed_list(art_link)
-                        processed.append(art_link) # Кратковременная память
+                        processed.append(art_link)
                         count += 1
                         time.sleep(DELAY_SECONDS)
-                        
                         if count >= POSTS_PER_GAME:
                             break
             else:
-                print(f"❌ Ошибка API (новинки): Код {res_new.status_code} - {res_new.text}")
+                print(f"❌ Ошибка API (новинки): {res_new.status_code}")
         except Exception as e:
-            print(f"❌ Системная ошибка при поиске новинок: {e}")
+            print(f"❌ Системная ошибка (новинки): {e}")
 
-        # --- ЭТАП 2: КОПАЕМ АРХИВ ---
+        # --- ЭТАП 2: УМНЫЙ ПОИСК ПО АРХИВУ (Популярное + Текст) ---
         pages_dug = 0
         while count < POSTS_PER_GAME and pages_dug < 5:
             current_offset = offsets.get(game_name, 0)
             if current_offset == 0:
-                current_offset = 50 
+                # Начинаем собирать сливки прямо с первой страницы популярного
+                current_offset = 0 
                 
-            print(f"Не хватило {POSTS_PER_GAME - count} артов. Идем в архив на позицию {current_offset}...")
-            params_archive = {"tag": tag_name, "offset": current_offset, "limit": 50, "mature_content": "true"}
+            print(f"Не хватило {POSTS_PER_GAME - count} артов. Идем в популярный архив на позицию {current_offset}...")
+            
+            # Тот самый волшебный запрос, который имитирует строку поиска сайта!
+            params_archive = {
+                "q": search_query, 
+                "offset": current_offset, 
+                "limit": 50, 
+                "mature_content": "true",
+                "timerange": "alltime"
+            }
             
             try:
-                res_archive = requests.get(api_url, headers=headers, params=params_archive, timeout=15)
+                res_archive = requests.get(api_popular_url, headers=headers, params=params_archive, timeout=15)
                 if res_archive.status_code == 200:
                     results_archive = res_archive.json().get("results", [])
                     if not results_archive:
-                        print("Архив пуст, больше артов по этому тегу нет.")
+                        print("Архив пуст, больше артов по этому запросу нет.")
                         break
                         
                     items_checked = 0
@@ -172,27 +190,21 @@ def main():
                         if not art_link or art_link in processed: 
                             continue
 
-                        title = item.get("title", "No title")
-                        author = item.get("author", {}).get("username", "Unknown author")
-                        
-                        image_url = None
-                        if "content" in item and "src" in item["content"]:
-                            image_url = item["content"]["src"]
-                        elif "preview" in item and "src" in item["preview"]:
-                            image_url = item["preview"]["src"]
-                            
+                        image_url = get_image_url(item)
                         if not image_url:
                             continue
                             
+                        title = item.get("title", "No title")
+                        author = item.get("author", {}).get("username", "Unknown author")
+                        
                         print(f"Из архива! Отправляем: {title}")
                         caption = f"<b>{title}</b>\nAuthor: {author}\n\n<a href='{art_link}'>Original on DeviantArt</a>"
                         
                         if send_photo_to_telegram(image_url, caption):
                             add_to_processed_list(art_link)
-                            processed.append(art_link) # Кратковременная память
+                            processed.append(art_link)
                             count += 1
                             time.sleep(DELAY_SECONDS)
-                            
                             if count >= POSTS_PER_GAME:
                                 break
                                 
