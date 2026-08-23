@@ -59,17 +59,35 @@ def send_photo_to_telegram(image_url, caption):
         return False
         
     url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
+    
+    # 1. Сначала скачиваем картинку с DA (обходим блокировку ТГ)
+    try:
+        img_res = requests.get(image_url, timeout=15)
+        if img_res.status_code != 200:
+            print(f"⚠️ DA не отдал картинку (Код {img_res.status_code})")
+            return False
+    except Exception as e:
+        print(f"⚠️ Ошибка скачивания: {e}")
+        return False
+
+    # 2. Отправляем картинку в Телеграм как файл
     data = {
         "chat_id": TG_CHAT_ID,
-        "photo": image_url,
         "caption": caption,
         "parse_mode": "HTML"
     }
+    files = {
+        "photo": ("image.jpg", img_res.content)
+    }
     
-    response = requests.post(url, data=data)
-    if response.status_code != 200:
-        print(f"⚠️ Ошибка отправки в ТГ: {response.text}")
-    return response.status_code == 200
+    try:
+        response = requests.post(url, data=data, files=files)
+        if response.status_code != 200:
+            print(f"⚠️ Ошибка ТГ: {response.text}")
+        return response.status_code == 200
+    except Exception as e:
+        print(f"⚠️ Ошибка отправки файла: {e}")
+        return False
 
 def extract_query(search_url):
     try:
@@ -82,13 +100,12 @@ def generate_tag(search_query):
     return re.sub(r'[^a-zA-Z0-9]', '', search_query).lower()
 
 def get_image_url(item):
-    # Умный поиск картинки: пробуем все варианты, включая комиксы
     if "content" in item and "src" in item["content"]:
         return item["content"]["src"]
     if "preview" in item and "src" in item["preview"]:
         return item["preview"]["src"]
     if "thumbs" in item and len(item["thumbs"]) > 0:
-        return item["thumbs"][-1]["src"] # Берем самый крупный thumbnail
+        return item["thumbs"][-1]["src"]
     return None
 
 def main():
@@ -105,10 +122,8 @@ def main():
     offsets = load_json(OFFSETS_FILE)
     headers = {"Authorization": f"Bearer {token}"}
     
-    # API 1: Для свежих артов (строгая хронология по хэштегам)
-    api_tags_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
-    # API 2: Для архива (умный текстовый поиск по самым популярным артам за всё время)
-    api_popular_url = "https://www.deviantart.com/api/v1/oauth2/browse/popular"
+    # ВАЖНО: Возвращаемся к единственному рабочему API хэштегов
+    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
 
     for game_name, search_url in GAMES.items():
         search_query = extract_query(search_url)
@@ -117,15 +132,15 @@ def main():
         if not search_query:
             continue
             
-        print(f"\n--- Обработка категории: {game_name} (Запрос: '{search_query}') ---")
+        print(f"\n--- Обработка категории: {game_name} (Тег: #{tag_name}) ---")
         count = 0
         
-        # --- ЭТАП 1: ПРОВЕРКА СВЕЖИХ АРТОВ (Хэштеги) ---
+        # --- ЭТАП 1: ПРОВЕРКА НОВИНОК ---
         print("🔍 Ищем свежие арты...")
         params_new = {"tag": tag_name, "offset": 0, "limit": 50, "mature_content": "true"}
         
         try:
-            res_new = requests.get(api_tags_url, headers=headers, params=params_new, timeout=15)
+            res_new = requests.get(api_url, headers=headers, params=params_new, timeout=15)
             if res_new.status_code == 200:
                 results_new = res_new.json().get("results", [])
                 for item in results_new:
@@ -150,36 +165,25 @@ def main():
                         time.sleep(DELAY_SECONDS)
                         if count >= POSTS_PER_GAME:
                             break
-            else:
-                print(f"❌ Ошибка API (новинки): {res_new.status_code}")
         except Exception as e:
             print(f"❌ Системная ошибка (новинки): {e}")
 
-        # --- ЭТАП 2: УМНЫЙ ПОИСК ПО АРХИВУ (Популярное + Текст) ---
+        # --- ЭТАП 2: КОПАЕМ АРХИВ ---
         pages_dug = 0
         while count < POSTS_PER_GAME and pages_dug < 5:
             current_offset = offsets.get(game_name, 0)
             if current_offset == 0:
-                # Начинаем собирать сливки прямо с первой страницы популярного
-                current_offset = 0 
+                current_offset = 50 
                 
-            print(f"Не хватило {POSTS_PER_GAME - count} артов. Идем в популярный архив на позицию {current_offset}...")
-            
-            # Тот самый волшебный запрос, который имитирует строку поиска сайта!
-            params_archive = {
-                "q": search_query, 
-                "offset": current_offset, 
-                "limit": 50, 
-                "mature_content": "true",
-                "timerange": "alltime"
-            }
+            print(f"Не хватило {POSTS_PER_GAME - count} артов. Идем в архив на позицию {current_offset}...")
+            params_archive = {"tag": tag_name, "offset": current_offset, "limit": 50, "mature_content": "true"}
             
             try:
-                res_archive = requests.get(api_popular_url, headers=headers, params=params_archive, timeout=15)
+                res_archive = requests.get(api_url, headers=headers, params=params_archive, timeout=15)
                 if res_archive.status_code == 200:
                     results_archive = res_archive.json().get("results", [])
                     if not results_archive:
-                        print("Архив пуст, больше артов по этому запросу нет.")
+                        print("Архив пуст, больше артов по этому тегу нет.")
                         break
                         
                     items_checked = 0
@@ -210,10 +214,10 @@ def main():
                                 
                     offsets[game_name] = current_offset + items_checked
                 else:
-                    print(f"❌ Ошибка API (архив): Код {res_archive.status_code} - {res_archive.text}")
+                    print(f"❌ Ошибка API (архив): Код {res_archive.status_code}")
                     break
             except Exception as e:
-                print(f"❌ Системная ошибка при поиске в архиве: {e}")
+                print(f"❌ Системная ошибка (архив): {e}")
                 break
                 
             pages_dug += 1
