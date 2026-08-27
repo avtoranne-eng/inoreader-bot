@@ -99,7 +99,30 @@ def post_to_vk_scheduled(text):
         return False
 
 def main():
-    feed = feedparser.parse(RSS_URL)
+    # --- Защита от обрыва связи с сервером ---
+    max_retries = 3
+    feed = None
+    for attempt in range(max_retries):
+        try:
+            feed = feedparser.parse(RSS_URL)
+            # Проверяем, нет ли скрытой ошибки сервера
+            if hasattr(feed, 'status') and feed.status not in [200, 301, 302]:
+                raise Exception(f"Ошибка сервера: {feed.status}")
+            break # Если всё ок, выходим из цикла попыток
+        except Exception as e:
+            print(f"⚠️ Попытка {attempt + 1} не удалась: {e}")
+            if attempt < max_retries - 1:
+                print("Ждем 10 секунд и пробуем снова...")
+                time.sleep(10)
+            else:
+                print("❌ Сервер Raindrop не отвечает после 3 попыток. Скрипт остановлен.")
+                return
+
+    if not feed or not feed.entries:
+        print("Нет новостей для обработки.")
+        return
+    # -----------------------------------------
+
     processed = get_processed_titles()
 
     count = 0
