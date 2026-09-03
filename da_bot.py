@@ -16,10 +16,6 @@ GAMES = {
     # --- Detroit: Become Human ---
     "Detroit Main": "https://www.deviantart.com/search?q=detroitbecomehuman",
     "DBH": "https://www.deviantart.com/search?q=dbh",
-    "Connor": "https://www.deviantart.com/search?q=connor",
-    "rk800": "https://www.deviantart.com/search?q=rk800",
-    "Markus": "https://www.deviantart.com/search?q=markusdbh",
-    "ax400": "https://www.deviantart.com/search?q=ax400",
     "Fanart": "https://www.deviantart.com/search?q=detroitbecomehumanfanart",
     "DBH Fanart": "https://www.deviantart.com/search?q=dbhfanart",
     
