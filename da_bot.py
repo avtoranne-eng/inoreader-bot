@@ -15,6 +15,7 @@ DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 GAMES = {
     # --- Detroit: Become Human ---
     "Detroit Main": "https://www.deviantart.com/search?q=detroitbecomehuman",
+    "Detroit": "https://www.deviantart.com/tag/detroit_become_human",
     "DBH": "https://www.deviantart.com/search?q=dbh",
     "Fanart": "https://www.deviantart.com/search?q=detroitbecomehumanfanart",
     "DBH Fanart": "https://www.deviantart.com/search?q=dbhfanart",
