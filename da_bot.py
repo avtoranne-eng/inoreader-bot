@@ -14,11 +14,11 @@ DA_CLIENT_SECRET = os.environ.get("DA_CLIENT_SECRET")
 # --- ТВОИ ПРЯМЫЕ ССЫЛКИ НА ПОИСК ---
 GAMES = {
     # --- Detroit: Become Human ---
-    "Detroit Main": "https://www.deviantart.com/search?q=detroitbecomehuman",
+    "Detroit Main": "https://www.deviantart.com/tag/detroitbecomehuman",
     "Detroit": "https://www.deviantart.com/tag/detroit_become_human",
-    "DBH": "https://www.deviantart.com/search?q=dbh",
-    "Fanart": "https://www.deviantart.com/search?q=detroitbecomehumanfanart",
-    "DBH Fanart": "https://www.deviantart.com/search?q=dbhfanart",
+    "DBH": "https://www.deviantart.com/tag/dbh",
+    "Fanart": "https://www.deviantart.com/tag/detroitbecomehumanfanart",
+    "DBH Fanart": "https://www.deviantart.com/tag/dbhfanart",
     
     # --- Resident Evil ---
     "Resident Evil Main": "https://www.deviantart.com/search?q=residentevil",
