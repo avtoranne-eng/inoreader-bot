@@ -152,11 +152,13 @@ def main():
                     generated_text = response.text
                     break
                 except Exception as e:
-                    if "429" in str(e) or "Quota" in str(e):
-                        print(f"⚠️ API Google перегружен (попытка {gen_attempt + 1}/{max_gen_retries}). Ждем 20 секунд...")
+                    error_str = str(e)
+                    # Теперь мы ловим и лимиты (429), и падения серверов Гугла (500, 503, Internal)
+                    if "429" in error_str or "Quota" in error_str or "500" in error_str or "Internal" in error_str:
+                        print(f"⚠️ Сбой на стороне Google (попытка {gen_attempt + 1}/{max_gen_retries}). Ждем 20 секунд...")
                         time.sleep(20)
                     else:
-                        raise e 
+                        raise e
             
             if not generated_text:
                 raise Exception("Не удалось сгенерировать текст после 3 попыток.")
