@@ -70,39 +70,65 @@ def get_tag_from_url(url):
 
 def send_photo_to_telegram(image_url, caption):
     if not TG_DA_BOT_TOKEN or not TG_CHAT_ID: return False
-    url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
     
     try:
+        # 1. Скачиваем картинку
         img_res = requests.get(image_url, timeout=15)
         if img_res.status_code != 200: return False
         image_data = img_res.content
         
-        # --- СЖИМАТЕЛЬ ДЛЯ ТЕЛЕГРАМА ---
-        if len(image_data) > 10 * 1024 * 1024:
-            print(f"⚠️ Картинка весит {len(image_data) // (1024*1024)} МБ. Сжимаю...")
-            try:
-                img = Image.open(io.BytesIO(image_data))
-                if img.mode in ("RGBA", "P"): img = img.convert("RGB")
+        # 2. Оптимизация через Pillow: правим вес и гигантские размеры
+        try:
+            img = Image.open(io.BytesIO(image_data))
+            w, h = img.size
+            
+            need_resize = (w > 3500 or h > 3500 or (w + h) > 7000)
+            need_compress = len(image_data) > 10 * 1024 * 1024
+            
+            if need_resize or need_compress:
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                
+                if need_resize:
+                    img.thumbnail((3000, 3000), Image.Resampling.LANCZOS)
+                    
                 output = io.BytesIO()
                 img.save(output, format="JPEG", quality=85, optimize=True)
                 image_data = output.getvalue()
-                print("✅ Успешно сжата!")
-            except Exception as e:
-                print(f"⚠️ Ошибка сжатия: {e}")
-                return False
-        # -------------------------------
+                
+                if need_resize:
+                    print(f"🔧 Оптимизированы габариты: {w}x{h} -> {img.size[0]}x{img.size[1]}")
+                elif need_compress:
+                    print("✅ Картинка успешно сжата по весу!")
+        except Exception as e:
+            print(f"⚠️ Ошибка оптимизации: {e}")
+            
     except Exception as e:
         return False
 
+    # 3. Отправляем в Телеграм
     data = {"chat_id": TG_CHAT_ID, "caption": caption, "parse_mode": "HTML"}
+    url_photo = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
     files = {"photo": ("image.jpg", image_data)}
     
     try:
-        response = requests.post(url, data=data, files=files)
+        response = requests.post(url_photo, data=data, files=files)
+        res_json = response.json() if response.status_code != 200 else {}
+        
+        # ЕСЛИ ТЕЛЕГРАМ РУГАЕТСЯ НА НЕСТАНДАРТНЫЕ РАЗМЕРЫ (КОМИКСЫ/ПАНОРАМЫ)
+        if not res_json.get("ok", True) and "PHOTO_INVALID_DIMENSIONS" in res_json.get("description", ""):
+            print("⚠️ Нестандартные пропорции для фото. Отправляю как документ...")
+            url_doc = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendDocument"
+            files_doc = {"document": ("art.jpg", image_data)}
+            res_doc = requests.post(url_doc, data=data, files=files_doc)
+            return res_doc.status_code == 200
+            
         if response.status_code != 200:
             print(f"⚠️ Ошибка ТГ: {response.text}")
+            
         return response.status_code == 200
-    except:
+    except Exception as e:
+        print(f"⚠️ Ошибка отправки: {e}")
         return False
 
 def get_image_url(item):
