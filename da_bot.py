@@ -245,10 +245,9 @@ def main():
                     results_archive = res_archive.json().get("results", [])
                     
                     if not results_archive:
-                        print("⚠️ DA обрезал выдачу. Сбрасываем позицию на 0 и ищем заново прямо сейчас!")
-                        offsets[game_name] = 0
-                        current_offset = 0
-                        continue
+                        print("⚠️ DA обрезал выдачу (лимит API). Этот тег выкопан до дна!")
+                        # Мы оставляем позицию как есть. Теперь бот будет брать только новинки из Этапа 1.
+                        break
                         
                     items_checked = 0
                     for item in results_archive:
