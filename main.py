@@ -2,7 +2,7 @@ import os
 import time
 import feedparser
 import requests
-import google.generativeai as genai
+from google import genai # НОВАЯ БИБЛИОТЕКА
 from bs4 import BeautifulSoup
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
@@ -12,8 +12,8 @@ VK_TOKEN = os.environ.get("VK_TOKEN") # Обычный ключ группы
 RAW_VK_GROUP_ID = str(os.environ.get("VK_GROUP_ID", ""))
 VK_GROUP_ID = ''.join(filter(str.isdigit, RAW_VK_GROUP_ID))
 
-genai.configure(api_key=API_KEY)
-model = genai.GenerativeModel("gemini-3.5-flash-lite")
+# НОВАЯ ИНИЦИАЛИЗАЦИЯ КЛИЕНТА
+client = genai.Client(api_key=API_KEY)
 
 RSS_URL = "https://avtoranne.raindrop.page/novosti-level-up-74004813/feed"
 PROCESSED_FILE = "processed.txt"
@@ -105,10 +105,9 @@ def main():
     for attempt in range(max_retries):
         try:
             feed = feedparser.parse(RSS_URL)
-            # Проверяем, нет ли скрытой ошибки сервера
             if hasattr(feed, 'status') and feed.status not in [200, 301, 302]:
                 raise Exception(f"Ошибка сервера: {feed.status}")
-            break # Если всё ок, выходим из цикла попыток
+            break
         except Exception as e:
             print(f"⚠️ Попытка {attempt + 1} не удалась: {e}")
             if attempt < max_retries - 1:
@@ -145,34 +144,35 @@ def main():
             
             for gen_attempt in range(max_gen_retries):
                 try:
-                    response = model.generate_content(prompt)
+                    # НОВЫЙ МЕТОД ГЕНЕРАЦИИ
+                    response = client.models.generate_content(
+                        model='gemini-3.5-flash-lite',
+                        contents=prompt
+                    )
                     generated_text = response.text
-                    break # Если текст сгенерирован успешно, выходим из цикла попыток
+                    break
                 except Exception as e:
                     if "429" in str(e) or "Quota" in str(e):
                         print(f"⚠️ API Google перегружен (попытка {gen_attempt + 1}/{max_gen_retries}). Ждем 20 секунд...")
                         time.sleep(20)
                     else:
-                        raise e # Если ошибка критическая и другая, пробрасываем её дальше
+                        raise e 
             
             if not generated_text:
                 raise Exception("Не удалось сгенерировать текст после 3 попыток.")
             # -----------------------------
             
-            # Находим картинку и выводим ссылку в консоль
             image_url = extract_image_url(article)
             if image_url:
                 print(f"🖼 ССЫЛКА НА КАРТИНКУ ДЛЯ СКАЧИВАНИЯ: {image_url}")
             else:
                 print("⚠️ Картинку найти не удалось.")
             
-            # Публикуем текст в отложку
             success = post_to_vk_scheduled(generated_text)
             
             if success:
                 add_to_processed_list(title)
                 count += 1
-                # Останавливаем скрипт после ОДНОГО успешного поста
                 if count >= 1: break 
         except Exception as e:
             print(f"❌ Критическая ошибка генерации: {e}")
