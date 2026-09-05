@@ -149,7 +149,8 @@ def main():
     offsets = load_json(OFFSETS_FILE)
     headers = {"Authorization": f"Bearer {token}"}
     
-    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
+    # ПЕРЕКЛЮЧИЛИ API НА ПОИСК САМЫХ НОВЫХ АРТОВ
+    api_url = "https://www.deviantart.com/api/v1/oauth2/browse/newest"
 
     for game_name, search_url in GAMES.items():
         tag_name = get_tag_from_url(search_url)
@@ -160,9 +161,12 @@ def main():
         print(f"\n--- Обработка категории: {game_name} (Тег: #{tag_name}) ---")
         count = 0
         
+        # Специальный синтаксис DA для поиска по тегу
+        search_query = f"tag:{tag_name}"
+        
         # --- ЭТАП 1: ПРОВЕРКА НОВИНОК ---
         print("🔍 Ищем свежие арты...")
-        params_new = {"tag": tag_name, "offset": 0, "limit": 50, "mature_content": "true"}
+        params_new = {"q": search_query, "offset": 0, "limit": 50, "mature_content": "true"}
         
         try:
             res_new = requests.get(api_url, headers=headers, params=params_new, timeout=15)
@@ -203,13 +207,13 @@ def main():
 
         # --- ЭТАП 2: КОПАЕМ АРХИВ ---
         pages_dug = 0
-        while count < POSTS_PER_GAME and pages_dug < 5:
+        while count < POSTS_PER_GAME and pages_dug < 50: # Увеличили глубину копания!
             current_offset = offsets.get(game_name, 0)
             if current_offset == 0:
                 current_offset = 50 
                 
             print(f"Не хватило {POSTS_PER_GAME - count} артов. Идем в архив на позицию {current_offset}...")
-            params_archive = {"tag": tag_name, "offset": current_offset, "limit": 50, "mature_content": "true"}
+            params_archive = {"q": search_query, "offset": current_offset, "limit": 50, "mature_content": "true"}
             
             try:
                 res_archive = requests.get(api_url, headers=headers, params=params_archive, timeout=15)
@@ -223,8 +227,11 @@ def main():
                     
                 if res_archive.status_code == 200:
                     results_archive = res_archive.json().get("results", [])
+                    
+                    # АВТОСБРОС СЧЕТЧИКА ПРИ УПОРЕ В СТЕНУ
                     if not results_archive:
-                        print("Архив пуст, больше артов по этому тегу нет.")
+                        print("⚠️ DA обрезал выдачу (конец архива). Сбрасываем позицию поиска на 0!")
+                        offsets[game_name] = 0
                         break
                         
                     items_checked = 0
