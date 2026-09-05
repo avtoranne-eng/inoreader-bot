@@ -4,6 +4,8 @@ import json
 import requests
 import urllib.parse
 import re
+import io
+from PIL import Image
 
 # --- НАСТРОЙКИ КЛЮЧЕЙ ---
 TG_DA_BOT_TOKEN = os.environ.get("TG_DA_BOT_TOKEN")
@@ -60,30 +62,59 @@ def add_to_processed_list(link):
     with open(PROCESSED_FILE, "a", encoding="utf-8") as f:
         f.write(link + "\n")
 
+def get_tag_from_url(url):
+    """Умная функция: понимает и теги (/tag/), и поиск (search?q=)"""
+    if "/tag/" in url:
+        return url.split("/tag/")[1].strip("/").lower()
+    elif "q=" in url:
+        query = url.split("q=")[1].split("&")[0]
+        query = urllib.parse.unquote_plus(query)
+        return re.sub(r'[^a-zA-Z0-9]', '', query).lower()
+    return ""
+
 def send_photo_to_telegram(image_url, caption):
     if not TG_DA_BOT_TOKEN or not TG_CHAT_ID:
         return False
         
     url = f"https://api.telegram.org/bot{TG_DA_BOT_TOKEN}/sendPhoto"
     
-    # 1. Сначала скачиваем картинку с DA (обходим блокировку ТГ)
+    # 1. Скачиваем картинку с DA
     try:
         img_res = requests.get(image_url, timeout=15)
         if img_res.status_code != 200:
             print(f"⚠️ DA не отдал картинку (Код {img_res.status_code})")
             return False
+            
+        image_data = img_res.content
+        
+        # --- СЖИМАТЕЛЬ ДЛЯ ТЕЛЕГРАМА ---
+        if len(image_data) > 10 * 1024 * 1024:
+            print(f"⚠️ Картинка весит {len(image_data) // (1024*1024)} МБ. Сжимаю для Телеграма...")
+            try:
+                img = Image.open(io.BytesIO(image_data))
+                if img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                output = io.BytesIO()
+                img.save(output, format="JPEG", quality=85, optimize=True)
+                image_data = output.getvalue()
+                print("✅ Картинка успешно сжата!")
+            except Exception as e:
+                print(f"⚠️ Ошибка при сжатии: {e}")
+                return False
+        # -------------------------------
+        
     except Exception as e:
         print(f"⚠️ Ошибка скачивания: {e}")
         return False
 
-    # 2. Отправляем картинку в Телеграм как файл
+    # 2. Отправляем в Телеграм
     data = {
         "chat_id": TG_CHAT_ID,
         "caption": caption,
         "parse_mode": "HTML"
     }
     files = {
-        "photo": ("image.jpg", img_res.content)
+        "photo": ("image.jpg", image_data)
     }
     
     try:
@@ -94,16 +125,6 @@ def send_photo_to_telegram(image_url, caption):
     except Exception as e:
         print(f"⚠️ Ошибка отправки файла: {e}")
         return False
-
-def extract_query(search_url):
-    try:
-        query_part = search_url.split("q=")[1].split("&")[0]
-        return urllib.parse.unquote_plus(query_part)
-    except IndexError:
-        return ""
-
-def generate_tag(search_query):
-    return re.sub(r'[^a-zA-Z0-9]', '', search_query).lower()
 
 def get_image_url(item):
     if "content" in item and "src" in item["content"]:
@@ -128,14 +149,12 @@ def main():
     offsets = load_json(OFFSETS_FILE)
     headers = {"Authorization": f"Bearer {token}"}
     
-    # ВАЖНО: Возвращаемся к единственному рабочему API хэштегов
     api_url = "https://www.deviantart.com/api/v1/oauth2/browse/tags"
 
     for game_name, search_url in GAMES.items():
-        search_query = extract_query(search_url)
-        tag_name = generate_tag(search_query)
+        tag_name = get_tag_from_url(search_url)
         
-        if not search_query:
+        if not tag_name:
             continue
             
         print(f"\n--- Обработка категории: {game_name} (Тег: #{tag_name}) ---")
@@ -147,6 +166,14 @@ def main():
         
         try:
             res_new = requests.get(api_url, headers=headers, params=params_new, timeout=15)
+            
+            # АНТИ-401 ЗАЩИТА
+            if res_new.status_code == 401:
+                print("⚠️ Токен просрочен! Обновляю на лету...")
+                token = get_da_token()
+                headers = {"Authorization": f"Bearer {token}"}
+                res_new = requests.get(api_url, headers=headers, params=params_new, timeout=15)
+                
             if res_new.status_code == 200:
                 results_new = res_new.json().get("results", [])
                 for item in results_new:
@@ -186,6 +213,14 @@ def main():
             
             try:
                 res_archive = requests.get(api_url, headers=headers, params=params_archive, timeout=15)
+                
+                # АНТИ-401 ЗАЩИТА
+                if res_archive.status_code == 401:
+                    print("⚠️ Токен просрочен! Обновляю на лету...")
+                    token = get_da_token()
+                    headers = {"Authorization": f"Bearer {token}"}
+                    res_archive = requests.get(api_url, headers=headers, params=params_archive, timeout=15)
+                    
                 if res_archive.status_code == 200:
                     results_archive = res_archive.json().get("results", [])
                     if not results_archive:
