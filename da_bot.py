@@ -187,6 +187,9 @@ def main():
 
                     image_url = get_image_url(item)
                     if not image_url:
+                        # Включаем рентген: бот скажет, если автор скрыл картинку
+                        hidden_title = item.get("title", "Unknown")
+                        print(f"🔒 Пропущено (автор запретил скачивание API): {hidden_title}")
                         continue
                         
                     title = item.get("title", "No title")
@@ -240,11 +243,15 @@ def main():
                         art_link = item.get("url")
                         
                         if not art_link or art_link in processed: 
+                            # print(f"♻️ Уже есть в базе на 15 000 артов: {item.get('title')}") # Убери решетку в начале, если хочешь видеть дубликаты
                             continue
 
-                        image_url = get_image_url(item)
-                        if not image_url:
-                            continue
+                    image_url = get_image_url(item)
+                    if not image_url:
+                        # Включаем рентген: бот скажет, если автор скрыл картинку
+                        hidden_title = item.get("title", "Unknown")
+                        print(f"🔒 Пропущено (автор запретил скачивание API): {hidden_title}")
+                        continue
                             
                         title = item.get("title", "No title")
                         author = item.get("author", {}).get("username", "Unknown author")
