@@ -192,9 +192,10 @@ def main():
                     results_archive = res_archive.json().get("results", [])
                     
                     if not results_archive:
-                        print("⚠️ DA обрезал выдачу (конец архива). Сбрасываем позицию поиска на 0!")
+                        print("⚠️ DA обрезал выдачу. Сбрасываем позицию на 0 и ищем заново прямо сейчас!")
                         offsets[game_name] = 0
-                        break
+                        current_offset = 0
+                        continue
                         
                     items_checked = 0
                     for item in results_archive:
