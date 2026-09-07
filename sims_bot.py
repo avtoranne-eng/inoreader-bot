@@ -104,16 +104,14 @@ def main():
 
     for category in CATEGORY_URLS:
         if count >= MAX_MODS_PER_RUN:
-            print("🎉 Достигнут лимит скачиваний на этот запуск. Иду отдыхать!")
+            print("🎉 Достигнут общий лимит скачиваний. Иду отдыхать!")
             break
 
         current_page_url = category
         print(f"--- Раздел: {category} ---", flush=True)
-        
-        category_done = False # Флаг умной остановки для текущей категории
 
         for page in range(1, MAX_PAGES + 1):
-            if count >= MAX_MODS_PER_RUN or category_done:
+            if count >= MAX_MODS_PER_RUN:
                 break
 
             try:
@@ -130,17 +128,13 @@ def main():
 
                     if not full_url.startswith("https://sims4pack.ru/"):
                         continue
-
                     if any(bad in full_url.lower() for bad in BLACKLIST):
                         continue
-
                     if '/mods/' not in full_url.lower() and not re.search(r'/\d+-', full_url):
                         continue
-
                     if full_url not in mod_links:
                         mod_links.append(full_url)
 
-                # --- УМНЫЙ ПОИСК СЛЕДУЮЩЕЙ СТРАНИЦЫ ---
                 next_page_url = None
                 for a in soup.find_all('a', href=True):
                     text = a.text.strip()
@@ -154,18 +148,16 @@ def main():
                         if 'вперед' in text or 'далее' in text or '»' in text:
                             next_page_url = urljoin(resp.url, a.get('href'))
                             break
-                # --------------------------------------
 
                 if mod_links:
+                    new_mods_on_page = 0 # Счетчик новинок на конкретной странице
+                    
                     for link in mod_links:
                         if count >= MAX_MODS_PER_RUN:
                             break
                         
-                        # ВОТ ОНА - УМНАЯ ОСТАНОВКА!
                         if link in processed:
-                            print(f"🛑 Знакомый мод: {link}. В этой категории свежего больше нет, идем дальше!")
-                            category_done = True # Поднимаем флаг
-                            break # Выходим из цикла ссылок
+                            continue # Просто пропускаем старье (например, из сайдбара) и идем к следующей ссылке
 
                         print(f"Скачиваю [Стр. {page}]: {link}", flush=True)
 
@@ -188,12 +180,10 @@ def main():
                                 href_a = a.get('href', '')
                                 text_a = a.text.strip().lower()
                                 classes_a = " ".join(a.get('class', [])).lower()
-
                                 full_dl = urljoin(link, href_a)
 
                                 if full_dl.rstrip('/').endswith('/downloads'):
                                     continue
-
                                 if 'download' in classes_a or 'download' in href_a.lower() or 'скачать' in text_a:
                                     download_link = full_dl
                                     break
@@ -201,7 +191,6 @@ def main():
                             if download_link:
                                 file_resp = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
                                 if file_resp.status_code == 200:
-
                                     content_type = file_resp.headers.get('Content-Type', '').lower()
                                     if 'text/html' in content_type:
                                         continue
@@ -221,12 +210,18 @@ def main():
                                     processed.append(link)
 
                                     count += 1
+                                    new_mods_on_page += 1 # Отмечаем, что нашли свежак!
                                     time.sleep(5)
 
                         except Exception as e:
                             print(f"Ошибка при обработке {link}: {e}", flush=True)
 
-                if not next_page_url or category_done:
+                    # УМНАЯ ОСТАНОВКА: Если бот проверил ВСЮ страницу и не скачал ни одного нового мода
+                    if new_mods_on_page == 0 and count < MAX_MODS_PER_RUN:
+                        print(f"🛑 На стр. {page} новинок нет. Закрываем этот раздел, идем дальше!")
+                        break # Выходим из цикла страниц, переходим к новой категории
+
+                if not next_page_url:
                     break
 
                 current_page_url = next_page_url
