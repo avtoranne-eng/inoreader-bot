@@ -40,7 +40,8 @@ BLACKLIST = [
 ]
 
 def get_processed():
-    if not os.path.exists(PROCESSED_FILE): return []
+    if not os.path.exists(PROCESSED_FILE): 
+        return []
     with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
         return f.read().splitlines()
 
@@ -48,7 +49,7 @@ def mark_processed(mod_id):
     with open(PROCESSED_FILE, "a", encoding="utf-8") as f:
         f.write(mod_id + "\n")
 
-def send_to_telegram(title, img_url, file_path):
+def send_to_telegram(title, img_url, file_path, source_url, download_url):
     caption = f"🔥 {title}"
 
     if img_url:
@@ -67,14 +68,45 @@ def send_to_telegram(title, img_url, file_path):
         except Exception as e:
             print(f"Ошибка отправки фото: {e}", flush=True)
 
+    file_sent = False
     if file_path and os.path.exists(file_path):
-        url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+
+        if file_size_mb < 49:
+            url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
+            try:
+                with open(file_path, 'rb') as f:
+                    doc_resp = requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f}, timeout=90)
+                
+                if doc_resp.status_code == 200 and doc_resp.json().get("ok"):
+                    file_sent = True
+                else:
+                    print(f"Telegram отклонил файл: {doc_resp.text}", flush=True)
+            except Exception as e:
+                print(f"Ошибка при передаче файла: {e}", flush=True)
+            finally:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+        else:
+            print(f"Файл слишком большой ({file_size_mb:.1f} MB), лимит TG — 50 MB.", flush=True)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+
+    if not file_sent:
+        url_msg = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
+        fallback_text = (
+            f"📦 <b>Файл превысил 50 МБ (лимит Telegram) или доступен только по ссылке.</b>\n\n"
+            f"📥 <a href='{download_url}'>Прямая ссылка на скачивание</a>\n"
+            f"🔗 <a href='{source_url}'>Страница мода на сайте</a>"
+        )
         try:
-            with open(file_path, 'rb') as f:
-                requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f}, timeout=60)
-            os.remove(file_path)
+            requests.post(url_msg, data={
+                "chat_id": TG_CHAT_ID, 
+                "text": fallback_text, 
+                "parse_mode": "HTML"
+            }, timeout=15)
         except Exception as e:
-            print(f"Ошибка отправки файла: {e}", flush=True)
+            print(f"Ошибка отправки ссылки-фоллбека: {e}", flush=True)
 
 def extract_image(soup):
     og = soup.find('meta', property='og:image')
@@ -151,14 +183,14 @@ def main():
                             break
 
                 if mod_links:
-                    new_mods_on_page = 0 # Счетчик новинок на конкретной странице
+                    new_mods_on_page = 0
                     
                     for link in mod_links:
                         if count >= MAX_MODS_PER_RUN:
                             break
                         
                         if link in processed:
-                            continue # Просто пропускаем старье (например, из сайдбара) и идем к следующей ссылке
+                            continue
 
                         print(f"Скачиваю [Стр. {page}]: {link}", flush=True)
 
@@ -206,21 +238,20 @@ def main():
                                         for chunk in file_resp.iter_content(chunk_size=8192):
                                             f.write(chunk)
 
-                                    send_to_telegram(title, img_url, filename)
+                                    send_to_telegram(title, img_url, filename, link, download_link)
                                     mark_processed(link)
                                     processed.append(link)
 
                                     count += 1
-                                    new_mods_on_page += 1 # Отмечаем, что нашли свежак!
+                                    new_mods_on_page += 1
                                     time.sleep(5)
 
                         except Exception as e:
                             print(f"Ошибка при обработке {link}: {e}", flush=True)
 
-                    # УМНАЯ ОСТАНОВКА: Если бот проверил ВСЮ страницу и не скачал ни одного нового мода
                     if new_mods_on_page == 0 and count < MAX_MODS_PER_RUN:
                         print(f"🛑 На стр. {page} новинок нет. Закрываем этот раздел, идем дальше!")
-                        break # Выходим из цикла страниц, переходим к новой категории
+                        break
 
                 if not next_page_url:
                     break
