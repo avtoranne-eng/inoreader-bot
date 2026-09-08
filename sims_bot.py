@@ -177,22 +177,27 @@ def main():
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 mod_links = []
 
-                for a in soup.find_all('a', href=True):
-                    href = a.get('href', '')
-                    full_url = urljoin(current_page_url, href)
-
-                    if not full_url.startswith("https://sims4odezhda.ru/"):
-                        continue
-                    if full_url in CATEGORY_URLS: 
-                        continue
-                    if any(bad in full_url.lower() for bad in BLACKLIST):
-                        continue
-                    
-                    if full_url == "https://sims4odezhda.ru/" or '/page/' in full_url:
-                        continue
-
-                    if full_url not in mod_links:
-                        mod_links.append(full_url)
+                # --- ИЗМЕНЕНИЕ 1: Собираем ссылки ТОЛЬКО из блоков постов, игнорируя меню ---
+                for block in soup.find_all(['article', 'div']):
+                    classes = " ".join(block.get('class', [])).lower()
+                    if 'post' in classes or 'item' in classes or 'type-post' in classes:
+                        for a in block.find_all('a', href=True):
+                            full_url = urljoin(current_page_url, a['href'])
+                            if not full_url.startswith("https://sims4odezhda.ru/"): continue
+                            if full_url in CATEGORY_URLS: continue
+                            if any(bad in full_url.lower() for bad in BLACKLIST): continue
+                            if full_url not in mod_links:
+                                mod_links.append(full_url)
+                
+                # Запасной план, если классы постов не нашлись
+                if not mod_links:
+                    for a in soup.find_all('a', href=True):
+                        full_url = urljoin(current_page_url, a['href'])
+                        if not full_url.startswith("https://sims4odezhda.ru/"): continue
+                        if full_url in CATEGORY_URLS: continue
+                        if any(bad in full_url.lower() for bad in BLACKLIST): continue
+                        if full_url not in mod_links:
+                            mod_links.append(full_url)
 
                 next_page_url = None
                 for a in soup.find_all('a', href=True):
@@ -225,14 +230,17 @@ def main():
 
                             mod_soup = BeautifulSoup(mod_resp.text, 'html.parser')
                             
-                            # 🔥 ЖЕСТКИЙ ФИЛЬТР №1: Отсекаем страницы-рубрики по системным тегам
-                            og_type = mod_soup.find('meta', property='og:type')
-                            if og_type and og_type.get('content') != 'article':
-                                print(f"⚠️ Пропуск: Это рубрика/меню, а не страница мода -> {link}", flush=True)
-                                processed_urls.add(link)
-                                mark_processed(link, "")
-                                continue
-
+                            # --- ИЗМЕНЕНИЕ 2: РЕНТГЕН-СКАНЕР. Жесткая проверка системного кода страницы ---
+                            body = mod_soup.find('body')
+                            if body and body.has_attr('class'):
+                                body_classes = " ".join(body['class']).lower()
+                                # Если в скрытом коде написано, что это архив/категория/тег - бежим отсюда!
+                                if 'archive' in body_classes or 'category' in body_classes or 'blog' in body_classes:
+                                    print(f"⚠️ Пропуск: Это страница рубрики, а не мод! -> {link}", flush=True)
+                                    processed_urls.add(link)
+                                    mark_processed(link, "")
+                                    continue
+                            
                             download_link = None
                             for a in mod_soup.find_all('a', href=True):
                                 href_a = a.get('href', '')
@@ -240,17 +248,29 @@ def main():
                                 classes_a = " ".join(a.get('class', [])).lower()
                                 full_dl = urljoin(link, href_a)
 
-                                # 🛑 АНТИ-ФЕЙК: Игнорируем глобальный баннер "Скачать игру Симс 4 торрент"
-                                if 'торрент' in text_a or 'последняя версия' in text_a or 'игру' in text_a:
+                                # ЖЕСТКИЙ АНТИ-БАННЕР: Блокируем ссылки на саму игру
+                                if 'игру' in text_a or 'торрент' in text_a or 'последняя версия' in text_a:
                                     continue
-                                if 'skachat-sims' in href_a.lower() or 'skachat-the-sims' in href_a.lower():
-                                    continue
+                                if 'skachat' in href_a.lower() and ('sims' in href_a.lower() or 'game' in href_a.lower()):
+                                    if not any(ext in href_a.lower() for ext in ['.zip', '.rar', '.7z', '.package']):
+                                        continue
 
-                                if 'download' in classes_a or 'download' in href_a.lower() or 'скачать' in text_a or 'simsfileshare' in href_a.lower() or 'sharemods' in href_a.lower() or 'modsfire' in href_a.lower() or 'google' in href_a.lower():
+                                # Поиск настоящей кнопки
+                                is_valid_button = False
+                                external_hosts = ['simsfileshare.net', 'sharemods.com', 'modsfire.com', 'drive.google.com', 'mega.nz', 'patreon.com', 'mediafire.com', 'boosty.to']
+                                
+                                if any(host in full_dl.lower() for host in external_hosts):
+                                    is_valid_button = True
+                                elif any(full_dl.lower().endswith(ext) for ext in ['.zip', '.rar', '.7z', '.package']):
+                                    is_valid_button = True
+                                elif 'скачать' in text_a or 'download' in text_a or 'download' in classes_a:
+                                    if full_dl != 'https://sims4odezhda.ru/':
+                                        is_valid_button = True
+
+                                if is_valid_button:
                                     download_link = full_dl
                                     break
 
-                            # 🔥 ЖЕСТКИЙ ФИЛЬТР №2: Если нет нормальной кнопки Скачать — пропускаем
                             if not download_link:
                                 print(f"⚠️ Пропуск: нет ссылки на скачивание (файла нет) -> {link}", flush=True)
                                 processed_urls.add(link)
