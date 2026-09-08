@@ -3,28 +3,26 @@ import time
 import requests
 import re
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 CATEGORY_URLS = [
-    "https://sims4pack.ru/",
-    "https://sims4pack.ru/tags/cas-i-ekran-zagruzki/",
-    "https://sims4pack.ru/tags/aksessuary/",
-    "https://sims4pack.ru/tags/vnesnost/",
-    "https://sims4pack.ru/tags/gameplay/",
-    "https://sims4pack.ru/tags/interer/",
-    "https://sims4pack.ru/tags/obuv/",
-    "https://sims4pack.ru/tags/obustroistvo-dvora/",
-    "https://sims4pack.ru/tags/odezda/",
-    "https://sims4pack.ru/tags/persy/",
-    "https://sims4pack.ru/tags/pitomcy-i-zivotnye/",
-    "https://sims4pack.ru/tags/priceski/",
-    "https://sims4pack.ru/tags/programmy/",
-    "https://sims4pack.ru/tags/stroitelstvo/",
-    "https://sims4pack.ru/tags/transport/",
-    "https://sims4pack.ru/tags/uvleceniia-i-navyki/"
+    "https://sims4odezhda.ru/mody-dlya-sims-4/",
+    "https://sims4odezhda.ru/vneshnost/",
+    "https://sims4odezhda.ru/aksessuary/",
+    "https://sims4odezhda.ru/grafika/",
+    "https://sims4odezhda.ru/interer/",
+    "https://sims4odezhda.ru/mebel/",
+    "https://sims4odezhda.ru/obuv/",
+    "https://sims4odezhda.ru/odezhda/",
+    "https://sims4odezhda.ru/pets/",
+    "https://sims4odezhda.ru/pricheski/",
+    "https://sims4odezhda.ru/sims/",
+    "https://sims4odezhda.ru/stroitelstvo/",
+    "https://sims4odezhda.ru/uchastki/",
+    "https://sims4odezhda.ru/" # Главная страница в самом конце для проверки свежака
 ]
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
@@ -33,21 +31,49 @@ MAX_MODS_PER_RUN = 20
 MAX_PAGES = 50
 
 BLACKLIST = [
-    '/tags/', '/popular', '/bookmarks', '/downloads', '/packs', 
-    '/login', '/creators', '/user', '/rules', '/feedback', 
+    '/tags/', '/tag/', '/category/', '/popular', '/bookmarks', '/downloads', '/packs', 
+    '/login', '/creators', '/user', '/rules', '/feedback', '/author/', '/page/',
     '/registration', '/auth', '/search', '/engine', 'javascript:', '#',
     '/pdn', '/copyright', '/contacts', '/about', '/faq'
 ]
 
-def get_processed():
-    if not os.path.exists(PROCESSED_FILE): 
-        return []
-    with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
-        return f.read().splitlines()
+# --- УМНАЯ ОЧИСТКА НАЗВАНИЙ ---
+def clean_title(text):
+    text = text.lower()
+    # Убираем слова, которые мешают точному поиску дубликатов
+    for word in ['мод', 'для', 'симс 4', 'sims 4', 'the sims 4', 'скачать', 'набор', 'комплект', 'коллекция', 'женская', 'мужская', 'прическа', 'одежда']:
+        text = text.replace(word, ' ')
+    # Оставляем только буквы и цифры
+    text = re.sub(r'[^a-zа-я0-9]', ' ', text)
+    return ' '.join(text.split())
 
-def mark_processed(mod_id):
+def get_processed():
+    urls = set()
+    titles = set()
+    if not os.path.exists(PROCESSED_FILE): 
+        return urls, titles
+    with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
+        lines = f.read().splitlines()
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            if line.startswith("TITLE:"):
+                titles.add(line.replace("TITLE:", "").strip())
+            else:
+                urls.add(line)
+                # Ретро-совместимость: вытаскиваем названия из старых ссылок sims4pack
+                if 'sims4pack.ru/mods/' in line:
+                    slug = line.split('/')[-1]
+                    slug = re.sub(r'^\d+-', '', slug) # убираем цифры ID
+                    titles.add(clean_title(slug.replace('-', ' ')))
+    return urls, titles
+
+def mark_processed(url, title):
     with open(PROCESSED_FILE, "a", encoding="utf-8") as f:
-        f.write(mod_id + "\n")
+        f.write(url + "\n")
+        if title:
+            f.write(f"TITLE:{title}\n")
 
 def send_to_telegram(title, img_url, file_path, source_url, download_url):
     caption = f"🔥 {title}"
@@ -92,12 +118,13 @@ def send_to_telegram(title, img_url, file_path, source_url, download_url):
             if os.path.exists(file_path):
                 os.remove(file_path)
 
+    # Запасной вариант срабатывает всегда, если файл не улетел напрямую
     if not file_sent:
         url_msg = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         fallback_text = (
-            f"📦 <b>Файл превысил 50 МБ (лимит Telegram) или доступен только по ссылке.</b>\n\n"
+            f"📦 <b>Файл тяжелее 50 МБ или доступен на внешнем сайте.</b>\n\n"
             f"📥 <a href='{download_url}'>Прямая ссылка на скачивание</a>\n"
-            f"🔗 <a href='{source_url}'>Страница мода на сайте</a>"
+            f"🔗 <a href='{source_url}'>Страница мода</a>"
         )
         try:
             requests.post(url_msg, data={
@@ -132,7 +159,7 @@ def main():
         print("Отсутствуют ключи Telegram!", flush=True)
         return
 
-    processed = get_processed()
+    processed_urls, processed_titles = get_processed()
     count = 0
 
     for category in CATEGORY_URLS:
@@ -155,19 +182,26 @@ def main():
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 mod_links = []
 
+                # Собираем ссылки на моды
                 for a in soup.find_all('a', href=True):
                     href = a.get('href', '')
                     full_url = urljoin(current_page_url, href)
 
-                    if not full_url.startswith("https://sims4pack.ru/"):
+                    if not full_url.startswith("https://sims4odezhda.ru/"):
+                        continue
+                    if full_url in CATEGORY_URLS: 
                         continue
                     if any(bad in full_url.lower() for bad in BLACKLIST):
                         continue
-                    if '/mods/' not in full_url.lower() and not re.search(r'/\d+-', full_url):
+                    
+                    # Отсекаем главную и пагинацию
+                    if full_url == "https://sims4odezhda.ru/" or '/page/' in full_url:
                         continue
+
                     if full_url not in mod_links:
                         mod_links.append(full_url)
 
+                # Ищем кнопку следующей страницы
                 next_page_url = None
                 for a in soup.find_all('a', href=True):
                     text = a.text.strip()
@@ -189,10 +223,9 @@ def main():
                         if count >= MAX_MODS_PER_RUN:
                             break
                         
-                        if link in processed:
+                        # Двойная проверка на дубликаты (по URL)
+                        if link in processed_urls:
                             continue
-
-                        print(f"Скачиваю [Стр. {page}]: {link}", flush=True)
 
                         try:
                             mod_resp = requests.get(link, headers=HEADERS, timeout=15)
@@ -200,9 +233,19 @@ def main():
                                 continue
 
                             mod_soup = BeautifulSoup(mod_resp.text, 'html.parser')
-
                             title_tag = mod_soup.find('h1')
                             title = title_tag.text.strip() if title_tag else "Мод для The Sims 4"
+                            
+                            c_title = clean_title(title)
+                            
+                            # Двойная проверка на дубликаты (по Названию)
+                            if c_title in processed_titles:
+                                print(f"♻️ Пропуск дубликата (было на старом сайте): {title}", flush=True)
+                                mark_processed(link, c_title)
+                                processed_urls.add(link)
+                                continue
+
+                            print(f"Скачиваю [Стр. {page}]: {link}", flush=True)
 
                             img_url = extract_image(mod_soup)
                             if img_url:
@@ -215,36 +258,41 @@ def main():
                                 classes_a = " ".join(a.get('class', [])).lower()
                                 full_dl = urljoin(link, href_a)
 
-                                if full_dl.rstrip('/').endswith('/downloads'):
-                                    continue
                                 if 'download' in classes_a or 'download' in href_a.lower() or 'скачать' in text_a:
                                     download_link = full_dl
                                     break
 
+                            file_path = None
                             if download_link:
-                                file_resp = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
-                                if file_resp.status_code == 200:
-                                    content_type = file_resp.headers.get('Content-Type', '').lower()
-                                    if 'text/html' in content_type:
-                                        continue
+                                try:
+                                    file_resp = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
+                                    if file_resp.status_code == 200:
+                                        content_type = file_resp.headers.get('Content-Type', '').lower()
+                                        
+                                        # Скачиваем, только если это не HTML-страница стороннего файлообменника
+                                        if 'text/html' not in content_type:
+                                            filename = "mod.package"
+                                            if "Content-Disposition" in file_resp.headers:
+                                                cd = file_resp.headers["Content-Disposition"]
+                                                if "filename=" in cd:
+                                                    filename = cd.split("filename=")[-1].strip('"').strip("'")
 
-                                    filename = "mod.package"
-                                    if "Content-Disposition" in file_resp.headers:
-                                        cd = file_resp.headers["Content-Disposition"]
-                                        if "filename=" in cd:
-                                            filename = cd.split("filename=")[-1].strip('"').strip("'")
+                                            file_path = filename
+                                            with open(file_path, 'wb') as f:
+                                                for chunk in file_resp.iter_content(chunk_size=8192):
+                                                    f.write(chunk)
+                                except Exception as e:
+                                    print(f"Не удалось загрузить файл напрямую: {e}", flush=True)
 
-                                    with open(filename, 'wb') as f:
-                                        for chunk in file_resp.iter_content(chunk_size=8192):
-                                            f.write(chunk)
+                            # Отправляем всё в ТГ (даже если файл не скачался, прилетит картинка + ссылка)
+                            send_to_telegram(title, img_url, file_path, link, download_link or link)
+                            mark_processed(link, c_title)
+                            processed_urls.add(link)
+                            processed_titles.add(c_title)
 
-                                    send_to_telegram(title, img_url, filename, link, download_link)
-                                    mark_processed(link)
-                                    processed.append(link)
-
-                                    count += 1
-                                    new_mods_on_page += 1
-                                    time.sleep(5)
+                            count += 1
+                            new_mods_on_page += 1
+                            time.sleep(5)
 
                         except Exception as e:
                             print(f"Ошибка при обработке {link}: {e}", flush=True)
