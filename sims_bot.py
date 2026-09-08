@@ -9,7 +9,6 @@ TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 CATEGORY_URLS = [
-    "https://sims4odezhda.ru/mody-dlya-sims-4/",
     "https://sims4odezhda.ru/vneshnost/",
     "https://sims4odezhda.ru/aksessuary/",
     "https://sims4odezhda.ru/grafika/",
