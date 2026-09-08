@@ -117,7 +117,8 @@ def send_to_telegram(title, img_url, file_path, source_url, download_url):
     if not file_sent:
         url_msg = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         fallback_text = (
-            f"📦 <b>Файл тяжелее 50 МБ или доступен на внешнем сайте.</b>\n\n"
+            f"📦 <b>Архив доступен по прямой ссылке</b>\n"
+            f"<i>(Либо файл весит больше 50 МБ, либо сайт заблокировал скачивание ботом)</i>\n\n"
             f"📥 <a href='{download_url}'>Прямая ссылка на скачивание</a>\n"
             f"🔗 <a href='{source_url}'>Страница мода</a>"
         )
@@ -177,7 +178,6 @@ def main():
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 mod_links = []
 
-                # --- ИЗМЕНЕНИЕ 1: Собираем ссылки ТОЛЬКО из блоков постов, игнорируя меню ---
                 for block in soup.find_all(['article', 'div']):
                     classes = " ".join(block.get('class', [])).lower()
                     if 'post' in classes or 'item' in classes or 'type-post' in classes:
@@ -189,7 +189,6 @@ def main():
                             if full_url not in mod_links:
                                 mod_links.append(full_url)
                 
-                # Запасной план, если классы постов не нашлись
                 if not mod_links:
                     for a in soup.find_all('a', href=True):
                         full_url = urljoin(current_page_url, a['href'])
@@ -230,11 +229,9 @@ def main():
 
                             mod_soup = BeautifulSoup(mod_resp.text, 'html.parser')
                             
-                            # --- ИЗМЕНЕНИЕ 2: РЕНТГЕН-СКАНЕР. Жесткая проверка системного кода страницы ---
                             body = mod_soup.find('body')
                             if body and body.has_attr('class'):
                                 body_classes = " ".join(body['class']).lower()
-                                # Если в скрытом коде написано, что это архив/категория/тег - бежим отсюда!
                                 if 'archive' in body_classes or 'category' in body_classes or 'blog' in body_classes:
                                     print(f"⚠️ Пропуск: Это страница рубрики, а не мод! -> {link}", flush=True)
                                     processed_urls.add(link)
@@ -248,14 +245,12 @@ def main():
                                 classes_a = " ".join(a.get('class', [])).lower()
                                 full_dl = urljoin(link, href_a)
 
-                                # ЖЕСТКИЙ АНТИ-БАННЕР: Блокируем ссылки на саму игру
                                 if 'игру' in text_a or 'торрент' in text_a or 'последняя версия' in text_a:
                                     continue
                                 if 'skachat' in href_a.lower() and ('sims' in href_a.lower() or 'game' in href_a.lower()):
                                     if not any(ext in href_a.lower() for ext in ['.zip', '.rar', '.7z', '.package']):
                                         continue
 
-                                # Поиск настоящей кнопки
                                 is_valid_button = False
                                 external_hosts = ['simsfileshare.net', 'sharemods.com', 'modsfire.com', 'drive.google.com', 'mega.nz', 'patreon.com', 'mediafire.com', 'boosty.to']
                                 
@@ -295,20 +290,36 @@ def main():
 
                             file_path = None
                             try:
-                                file_resp = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
+                                # 🔥 ОБМАНЫВАЕМ ЗАЩИТУ ОТ СКАЧИВАНИЯ 🔥
+                                # Добавляем заголовок Referer, чтобы сервер думал, что мы качаем со страницы мода
+                                dl_headers = HEADERS.copy()
+                                dl_headers['Referer'] = link 
+                                
+                                file_resp = requests.get(download_link, headers=dl_headers, stream=True, timeout=30)
                                 if file_resp.status_code == 200:
                                     content_type = file_resp.headers.get('Content-Type', '').lower()
+                                    
+                                    # Убеждаемся, что сервер отдал именно файл, а не страницу-заглушку с HTML
                                     if 'text/html' not in content_type:
                                         filename = "mod.package"
                                         if "Content-Disposition" in file_resp.headers:
                                             cd = file_resp.headers["Content-Disposition"]
                                             if "filename=" in cd:
                                                 filename = cd.split("filename=")[-1].strip('"').strip("'")
+                                        else:
+                                            # Запасной план: вытаскиваем имя прямо из ссылки
+                                            url_filename = download_link.split('/')[-1].split('?')[0]
+                                            if any(url_filename.lower().endswith(ext) for ext in ['.zip', '.rar', '.7z', '.package']):
+                                                filename = url_filename
 
                                         file_path = filename
                                         with open(file_path, 'wb') as f:
                                             for chunk in file_resp.iter_content(chunk_size=8192):
                                                 f.write(chunk)
+                                    else:
+                                        print(f"⚠️ Сервер не отдал файл, а перенаправил на HTML (вероятно защита): {download_link}", flush=True)
+                                else:
+                                    print(f"⚠️ Ошибка сервера при скачивании (код {file_resp.status_code}): {download_link}", flush=True)
                             except Exception as e:
                                 print(f"Не удалось загрузить файл напрямую: {e}", flush=True)
 
