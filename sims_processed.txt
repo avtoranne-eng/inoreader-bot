@@ -5570,3 +5570,43 @@ https://sims4odezhda.ru/mod-karera-didzheja.html
 TITLE:карьера диджея
 https://sims4odezhda.ru/karera-ambassadora-blagotvoritelnogo-fonda.html
 TITLE:карьера амбассадора благотворительного фонда
+https://sims4odezhda.ru/karera-dietologa.html
+TITLE:карьера диетолога
+https://sims4odezhda.ru/karera-stroitelja.html
+TITLE:карьера строителя
+https://sims4odezhda.ru/karera-stomatologa.html
+TITLE:карьера стоматолога
+https://sims4odezhda.ru/karera-alhimika.html
+TITLE:карьера алхимика
+https://sims4odezhda.ru/karera-bankira-ot-kiara.html
+TITLE:карьера банкира от kiara
+https://sims4odezhda.ru/karera-specialista-po-poisku-raboty.html
+TITLE:карьера специалиста по поиску работы
+https://sims4odezhda.ru/mod-kusochek-zhizni-dlja-sims-4.html
+TITLE:кусочек жизни
+https://sims4odezhda.ru/karera-hudozhnika-ot-kiara.html
+TITLE:карьера художника от kiara
+https://sims4odezhda.ru/the-mood-pack-mod.html
+TITLE:спектр настроений the mood pack mod
+https://sims4odezhda.ru/lot-51-core-library.html
+TITLE:lot 51 core library
+https://sims4odezhda.ru/novye-jemocionalnye-cherty.html
+TITLE:новые эмоциональные черты
+https://sims4odezhda.ru/better-buildbuy-dlja-sims-4.html
+TITLE:better buildbuy
+https://sims4odezhda.ru/life-s-moments.html
+TITLE:life s moments
+https://sims4odezhda.ru/mod-na-zamenu-imen-v-sims-4.html
+TITLE:на замену имен
+https://sims4odezhda.ru/sims-4-tray-importer.html
+TITLE:tray importer
+https://sims4odezhda.ru/mod-sugar-life-dlja-sims-4.html
+TITLE:sugar life
+https://sims4odezhda.ru/lo-fi-stancija.html
+TITLE:lo fi станция
+https://sims4odezhda.ru/xml-injector-dlja-sims-4.html
+TITLE:xml injector
+https://sims4odezhda.ru/avtomaticheskaja-maska-dlja-sna-ot-natabear.html
+TITLE:автоматическая маска сна от natabear
+https://sims4odezhda.ru/mod-simcare-ot-plumlace.html
+TITLE:simcare от plumlace
