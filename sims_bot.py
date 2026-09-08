@@ -225,6 +225,14 @@ def main():
 
                             mod_soup = BeautifulSoup(mod_resp.text, 'html.parser')
                             
+                            # 🔥 ЖЕСТКИЙ ФИЛЬТР №1: Отсекаем страницы-рубрики по системным тегам
+                            og_type = mod_soup.find('meta', property='og:type')
+                            if og_type and og_type.get('content') != 'article':
+                                print(f"⚠️ Пропуск: Это рубрика/меню, а не страница мода -> {link}", flush=True)
+                                processed_urls.add(link)
+                                mark_processed(link, "")
+                                continue
+
                             download_link = None
                             for a in mod_soup.find_all('a', href=True):
                                 href_a = a.get('href', '')
@@ -232,13 +240,19 @@ def main():
                                 classes_a = " ".join(a.get('class', [])).lower()
                                 full_dl = urljoin(link, href_a)
 
-                                if 'download' in classes_a or 'download' in href_a.lower() or 'скачать' in text_a or 'simsfileshare' in href_a.lower() or 'sharemods' in href_a.lower():
+                                # 🛑 АНТИ-ФЕЙК: Игнорируем глобальный баннер "Скачать игру Симс 4 торрент"
+                                if 'торрент' in text_a or 'последняя версия' in text_a or 'игру' in text_a:
+                                    continue
+                                if 'skachat-sims' in href_a.lower() or 'skachat-the-sims' in href_a.lower():
+                                    continue
+
+                                if 'download' in classes_a or 'download' in href_a.lower() or 'скачать' in text_a or 'simsfileshare' in href_a.lower() or 'sharemods' in href_a.lower() or 'modsfire' in href_a.lower() or 'google' in href_a.lower():
                                     download_link = full_dl
                                     break
 
-                            # 🔥 ЖЕСТКИЙ ФИЛЬТР: Если нет кнопки Скачать, значит это не мод (а меню или рубрика).
+                            # 🔥 ЖЕСТКИЙ ФИЛЬТР №2: Если нет нормальной кнопки Скачать — пропускаем
                             if not download_link:
-                                print(f"⚠️ Пропуск: нет ссылки на скачивание (вероятно, рубрика) -> {link}", flush=True)
+                                print(f"⚠️ Пропуск: нет ссылки на скачивание (файла нет) -> {link}", flush=True)
                                 processed_urls.add(link)
                                 mark_processed(link, "")
                                 continue
