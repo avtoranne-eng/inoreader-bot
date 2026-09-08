@@ -3,11 +3,12 @@ import time
 import requests
 import re
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import urljoin, unquote
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
+# Убрали главную страницу, чтобы бот не хватал файлы из удаленных тобой категорий
 CATEGORY_URLS = [
     "https://sims4odezhda.ru/vneshnost/",
     "https://sims4odezhda.ru/aksessuary/",
@@ -20,8 +21,7 @@ CATEGORY_URLS = [
     "https://sims4odezhda.ru/pricheski/",
     "https://sims4odezhda.ru/sims/",
     "https://sims4odezhda.ru/stroitelstvo/",
-    "https://sims4odezhda.ru/uchastki/",
-    "https://sims4odezhda.ru/"
+    "https://sims4odezhda.ru/uchastki/"
 ]
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
@@ -29,7 +29,6 @@ PROCESSED_FILE = "sims_processed.txt"
 MAX_MODS_PER_RUN = 20
 MAX_PAGES = 50
 
-# Память для очистки дубликатов (со старого сайта)
 def clean_title(text):
     text = text.lower()
     for word in ['мод', 'для', 'симс 4', 'sims 4', 'the sims 4', 'скачать']:
@@ -156,17 +155,15 @@ def main():
                 soup = BeautifulSoup(resp.text, 'html.parser')
                 mod_links = []
 
-                # --- МАГИЯ ПРОСТОТЫ: Все моды заканчиваются на .html ---
                 for a in soup.find_all('a', href=True):
                     full_url = urljoin(current_page_url, a['href'])
                     
                     if not full_url.startswith("https://sims4odezhda.ru/"): continue
-                    if not full_url.endswith('.html'): continue # Отсекаем вообще все лишнее
+                    if not full_url.endswith('.html'): continue 
                     
                     if full_url not in mod_links:
                         mod_links.append(full_url)
 
-                # Ищем кнопку следующей страницы
                 next_page_url = None
                 for a in soup.find_all('a', href=True):
                     text = a.text.strip()
@@ -213,7 +210,6 @@ def main():
                                 classes_a = " ".join(a.get('class', [])).lower()
                                 full_dl = urljoin(link, href_a)
 
-                                # Пропускаем рекламу
                                 if 'торрент' in text_a or 'skachat-sims' in href_a.lower():
                                     continue
 
@@ -234,19 +230,28 @@ def main():
 
                             file_path = None
                             try:
-                                # Просто качаем, без лишних проверок сервера!
                                 file_resp = requests.get(download_link, headers=HEADERS, stream=True, timeout=30)
                                 if file_resp.status_code == 200:
-                                    filename = "mod.package"
+                                    # Создаем красивое и безопасное имя файла из заголовка поста
+                                    safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
+                                    
+                                    # Определяем расширение (.zip, .rar или .package)
+                                    ext = ".package"
+                                    content_type = file_resp.headers.get('Content-Type', '').lower()
+                                    if 'zip' in content_type: ext = ".zip"
+                                    elif 'rar' in content_type: ext = ".rar"
+                                    elif '7z' in content_type: ext = ".7z"
+                                    
+                                    filename = f"{safe_title}{ext}"
+
+                                    # Если сервер всё-таки отдаст оригинальное имя, берем его
                                     if "Content-Disposition" in file_resp.headers:
                                         cd = file_resp.headers["Content-Disposition"]
                                         if "filename=" in cd:
-                                            filename = cd.split("filename=")[-1].strip('"').strip("'")
-                                    else:
-                                        url_name = download_link.split('/')[-1].split('?')[0]
-                                        if any(url_name.lower().endswith(ext) for ext in ['.zip', '.rar', '.7z', '.package']):
-                                            filename = url_name
-
+                                            extracted = cd.split("filename=")[-1].strip('"').strip("'").split(';')[0]
+                                            if extracted:
+                                                filename = unquote(extracted)
+                                    
                                     file_path = filename
                                     with open(file_path, 'wb') as f:
                                         for chunk in file_resp.iter_content(chunk_size=8192):
