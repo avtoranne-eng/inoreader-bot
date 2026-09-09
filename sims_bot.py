@@ -236,10 +236,6 @@ def main():
                         except Exception as e:
                             print(f"Ошибка при обработке {link}: {e}", flush=True)
 
-                    if new_mods_on_page == 0 and count < MAX_MODS_PER_RUN:
-                        print(f"🛑 На стр. {page} новинок нет. Закрываем этот раздел, идем дальше!")
-                        break
-
                 if not next_page_url:
                     break
 
