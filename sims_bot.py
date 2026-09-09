@@ -14,7 +14,7 @@ CATEGORY_URLS = [
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
 PROCESSED_FILE = "sims_processed.txt"
-MAX_MODS_PER_RUN = 50
+MAX_MODS_PER_RUN = 25
 MAX_PAGES = 50
 
 BLACKLIST = [
@@ -61,7 +61,7 @@ def send_to_telegram(title, img_url, file_path, source_url, download_url):
             url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
             try:
                 with open(file_path, 'rb') as f:
-                    doc_resp = requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f}, timeout=90)
+                    doc_resp = requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f}, timeout=300)
                 
                 if doc_resp.status_code == 200 and doc_resp.json().get("ok"):
                     file_sent = True
