@@ -144,11 +144,12 @@ def main():
                     href = a.get('href', '')
                     full_url = urljoin(current_page_url, href)
 
-                    if not full_url.startswith("https://sims4pack.ru/"):
+                    # 🔥 Исправлено специально под Lovesims.ru
+                    if not full_url.startswith("https://lovesims.ru/"):
                         continue
                     if any(bad in full_url.lower() for bad in BLACKLIST):
                         continue
-                    if '/mods/' not in full_url.lower() and not re.search(r'/\d+-', full_url):
+                    if not full_url.endswith('.html'):
                         continue
                     if full_url not in mod_links:
                         mod_links.append(full_url)
