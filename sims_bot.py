@@ -9,9 +9,7 @@ TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 CATEGORY_URLS = [
-    "https://sims4odezhda.ru/mody-dlya-sims-4/",
-    "https://lovesims.ru/the-sims4/",
-    "https://sims-market.ru/cat/sims-4/"
+    "https://lovesims.ru/the-sims4/odezda-sims4/"
 ]
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
