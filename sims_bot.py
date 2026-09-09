@@ -21,7 +21,9 @@ BLACKLIST = [
     '/tags/', '/popular', '/bookmarks', '/downloads', '/packs', 
     '/login', '/creators', '/user', '/rules', '/feedback', 
     '/registration', '/auth', '/search', '/engine', 'javascript:', '#',
-    '/pdn', '/copyright', '/contacts', '/about', '/faq'
+    '/pdn', '/copyright', '/contacts', '/about', '/faq',
+    # Добавляем мусорные разделы нового сайта:
+    '/kody/', '/novosti/', 'privacy-policy', '/the-sims3/', '/the-sims2/'
 ]
 
 def get_processed():
