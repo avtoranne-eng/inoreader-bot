@@ -7,8 +7,8 @@ from urllib.parse import urljoin
 from deep_translator import GoogleTranslator
 
 # Жестко прописанные ключи для AnnaModsBot (чтобы GitHub больше не путал ботов!)
-TG_TOKEN = "8959400925:AAFbq64yiwvbickUdQbNg5NYe7RKH7up4oQ"
-TG_CHAT_ID = "5277534829"
+TG_TOKEN = "TG_MODS_BOT_TOKEN"
+TG_CHAT_ID = "TG_CHAT_ID"
 
 # Главная страница свежих модов на ModDB
 CATEGORY_URLS = [
