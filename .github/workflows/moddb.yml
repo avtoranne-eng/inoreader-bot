@@ -26,10 +26,9 @@ jobs:
 
       - name: Run script
         env:
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_BOT_TOKEN: ${{ TG_MODS_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
-        run: python nexus_bot.py
+        run: python moddb_bot.py
         
       - name: Commit and push
         run: |
