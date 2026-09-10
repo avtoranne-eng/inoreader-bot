@@ -140,7 +140,12 @@ def main():
             try:
                 # Парсим общую страницу Нексуса как обычный сайт
                 resp = requests.get(current_page_url, headers={'User-Agent': HEADERS['User-Agent']}, timeout=15)
+                
+                # ВОТ ЭТА СТРОЧКА покажет, пускает ли нас сайт:
+                print(f"Ответ от www.nexusmods.com: {resp.status_code}", flush=True)
+                
                 if resp.status_code != 200:
+                    print("Сайт заблокировал чтение страницы!", flush=True)
                     break
 
                 soup = BeautifulSoup(resp.text, 'html.parser')
