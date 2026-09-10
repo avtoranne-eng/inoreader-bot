@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from deep_translator import GoogleTranslator
 
-# Правильный токен твоего бота для модов из GitHub Secrets
+# Ключи для AnnaModsBot
 TG_TOKEN = os.environ.get("TG_MODS_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
@@ -45,6 +45,7 @@ def translate_text(text):
 def send_to_telegram(game_name, title, img_url, txt_path, file_path, source_url, download_url):
     caption = f"🎮 <b>Игра: {game_name.upper()}</b>\n🔥 <b>{title}</b>\n\n📄 <i>Инструкция в файле.</i>"
 
+    # 1. Отправка фото через мета-тег og:image
     if img_url:
         req_url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
         try:
@@ -61,6 +62,7 @@ def send_to_telegram(game_name, title, img_url, txt_path, file_path, source_url,
         except Exception as e:
             print(f"Ошибка отправки фото: {e}", flush=True)
 
+    # 2. Отправка текстовой инструкции
     if txt_path and os.path.exists(txt_path):
         url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
         try:
@@ -73,6 +75,7 @@ def send_to_telegram(game_name, title, img_url, txt_path, file_path, source_url,
                 os.remove(txt_path)
         time.sleep(2)
 
+    # 3. Отправка файла мода (если он прямой)
     file_sent = False
     if file_path and os.path.exists(file_path):
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
@@ -89,10 +92,11 @@ def send_to_telegram(game_name, title, img_url, txt_path, file_path, source_url,
                 if os.path.exists(file_path):
                     os.remove(file_path)
 
+    # 4. Фоллбек (ссылка на скачивание, если файл через сторонний обменник)
     if not file_sent:
         url_msg = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         links_text = (
-            f"📦 <b>Архив превысил 50 МБ (лимит Telegram).</b>\n\n"
+            f"📦 <b>Архив доступен по ссылке.</b>\n\n"
             f"📥 <a href='{download_url}'>Скачать по прямой ссылке</a>\n"
             f"🔗 <a href='{source_url}'>Оригинальная страница мода</a>"
         )
@@ -124,10 +128,7 @@ def main():
 
             try:
                 resp = requests.get(current_page_url, headers=HEADERS, timeout=15)
-                print(f"Ответ сайта: {resp.status_code}", flush=True)
-                
                 if resp.status_code != 200:
-                    print("Сайт недоступен или блокирует запросы.", flush=True)
                     break
 
                 soup = BeautifulSoup(resp.text, 'html.parser')
@@ -140,8 +141,6 @@ def main():
                         continue
                     if any(bad in full_url.lower() for bad in BLACKLIST):
                         continue
-                    
-                    # 🔥 ЗАЩИТА: Игнорируем любые ссылки со знаком вопроса (страницы, фильтры)
                     if '?' in full_url:
                         continue
                     
@@ -162,41 +161,37 @@ def main():
                             mod_resp = requests.get(link, headers=HEADERS, timeout=15)
                             mod_soup = BeautifulSoup(mod_resp.text, 'html.parser')
                             
-                            title_tag = mod_soup.find('h1')
-                            title = title_tag.text.strip() if title_tag else "ModGames Mod"
-                            
-                            game_name = "ИГРА НЕ ОПРЕДЕЛЕНА"
-                            breadcrumbs = mod_soup.find('div', class_='eTitle')
-                            if not breadcrumbs:
-                                breadcrumbs = mod_soup.find('span', class_='cats')
-                            
-                            if breadcrumbs:
-                                links_in_bc = breadcrumbs.find_all('a')
-                                if len(links_in_bc) > 1:
-                                    game_name = links_in_bc[1].text.strip()
-                                elif len(links_in_bc) == 1:
-                                    game_name = links_in_bc[0].text.strip()
+                            # 🔥 Надежное извлечение названия через тег og:title
+                            title_meta = mod_soup.find('meta', property='og:title')
+                            title = title_meta['content'].strip() if title_meta and 'content' in title_meta.attrs else "ModGames Mod"
+                            # Убираем лишний мусор от укоза в конце заглавия (если есть)
+                            if ' - ' in title:
+                                title = title.split(' - ')[0]
 
+                            # 🔥 Надежное извлечение игры прямо из структуры URL (например /load/fallout_4/...)
+                            # Ссылка: https://modgames.net/load/fallout_4/sushhestva/name/439
+                            url_parts = link.split('/')
+                            game_name = "Mods"
+                            if len(url_parts) > 4:
+                                game_slug = url_parts[4]
+                                game_name = game_slug.replace('_', ' ').title()
+
+                            # Описание и перевод
                             desc_div = mod_soup.find('div', class_=re.compile(r'eMessage|eText'))
                             raw_desc = desc_div.text.strip() if desc_div else "Описание отсутствует."
                             translated_desc = translate_text(raw_desc)
                             
-                            safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()
+                            # Жесткое ограничение длины названия для файла (не более 40 символов), чтобы избежать ошибок файловой системы
+                            safe_title = re.sub(r'[\\/*?:"<>|]', "", title).strip()[:40]
                             txt_filename = f"Инструкция - {safe_title}.txt"
                             with open(txt_filename, "w", encoding="utf-8") as f:
                                 f.write(translated_desc)
                                 
-                            img_url = None
-                            img_tag = mod_soup.find('img', class_='eMessageImg')
-                            if img_tag and 'src' in img_tag.attrs:
-                                img_url = urljoin(link, img_tag['src'])
-                            else:
-                                for img in mod_soup.find_all('img'):
-                                    src = img.get('src', '')
-                                    if '/uploads/' in src.lower() and not 'logo' in src.lower():
-                                        img_url = urljoin(link, src)
-                                        break
+                            # 🔥 Надежное извлечение картинки через мета-тег og:image
+                            img_meta = mod_soup.find('meta', property='og:image')
+                            img_url = img_meta['content'] if img_meta and 'content' in img_meta.attrs else None
                             
+                            # Ссылка на скачивание
                             download_link = None
                             for a in mod_soup.find_all('a', href=True):
                                 text_a = a.text.strip().lower()
@@ -225,6 +220,7 @@ def main():
                                             for chunk in file_resp.iter_content(8192):
                                                 f.write(chunk)
                             
+                            # Отправляем в Телеграм
                             send_to_telegram(game_name, title, img_url, txt_filename, file_path, link, download_link)
                             
                             mark_processed(link)
