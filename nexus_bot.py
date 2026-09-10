@@ -30,6 +30,8 @@ BLACKLIST = [
 
 def get_processed():
     if not os.path.exists(PROCESSED_FILE): 
+        # Создаем пустой файл, чтобы GitHub Actions не падал с ошибкой
+        open(PROCESSED_FILE, 'w').close() 
         return []
     with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
         return f.read().splitlines()
