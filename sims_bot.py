@@ -14,7 +14,7 @@ CATEGORY_URLS = [
 
 HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36'}
 PROCESSED_FILE = "sims_processed.txt"
-MAX_MODS_PER_RUN = 25
+MAX_MODS_PER_RUN = 50
 MAX_PAGES = 5000
 
 BLACKLIST = [
