@@ -5,7 +5,7 @@ import re
 from bs4 import BeautifulSoup
 from deep_translator import GoogleTranslator
 
-TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
+TG_TOKEN = os.environ.get("TG_MODS_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 NEXUS_API_KEY = os.environ.get("NEXUS_API_KEY")
 
