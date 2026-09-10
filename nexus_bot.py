@@ -5,6 +5,7 @@ import re
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from deep_translator import GoogleTranslator
+import cloudscraper # 🔥 Наша новая отмычка от Cloudflare
 
 TG_TOKEN = os.environ.get("TG_BOT_TOKEN")
 TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
@@ -14,14 +15,14 @@ CATEGORY_URLS = [
     "https://www.nexusmods.com/mods"
 ]
 
-HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
+# Заголовки только для API-ключей (для скачивания)
+API_HEADERS = {
     'apikey': NEXUS_API_KEY
 }
 
 PROCESSED_FILE = "nexus_processed.txt"
 MAX_MODS_PER_RUN = 5
-MAX_PAGES = 50000
+MAX_PAGES = 50
 
 BLACKLIST = [
     '/users/', '/about/', '/games/', '/news/', '/forum/', 
@@ -30,8 +31,7 @@ BLACKLIST = [
 
 def get_processed():
     if not os.path.exists(PROCESSED_FILE): 
-        # Создаем пустой файл, чтобы GitHub Actions не падал с ошибкой
-        open(PROCESSED_FILE, 'w').close() 
+        open(PROCESSED_FILE, 'w').close() # 🔥 Защита от ошибки 128 в GitHub
         return []
     with open(PROCESSED_FILE, "r", encoding="utf-8") as f:
         return f.read().splitlines()
@@ -51,13 +51,12 @@ def translate_text(text):
     try:
         return GoogleTranslator(source='en', target='ru').translate(text[:4500])
     except Exception as e:
-        print(f"Ошибка перевода: {e}")
+        print(f"Ошибка перевода: {e}", flush=True)
         return text
 
 def send_to_telegram(game_name, title, version, img_url, txt_path, file_path, source_url):
     caption = f"🎮 <b>Игра: {game_name.upper()}</b>\n🔥 <b>{title} (v.{version})</b>\n\n📄 <i>Инструкция на русском в файле.</i>"
 
-    # 1. Фото
     if img_url:
         req_url = f"https://api.telegram.org/bot{TG_TOKEN}/sendPhoto"
         try:
@@ -72,22 +71,20 @@ def send_to_telegram(game_name, title, version, img_url, txt_path, file_path, so
                     os.remove("temp_img.jpg")
                 time.sleep(2)
         except Exception as e:
-            print(f"Ошибка отправки фото: {e}")
+            print(f"Ошибка отправки фото: {e}", flush=True)
 
-    # 2. Инструкция (TXT)
     if txt_path and os.path.exists(txt_path):
         url_doc = f"https://api.telegram.org/bot{TG_TOKEN}/sendDocument"
         try:
             with open(txt_path, 'rb') as f:
                 requests.post(url_doc, data={"chat_id": TG_CHAT_ID}, files={"document": f}, timeout=30)
         except Exception as e:
-            print(f"Ошибка отправки инструкции: {e}")
+            print(f"Ошибка отправки инструкции: {e}", flush=True)
         finally:
             if os.path.exists(txt_path):
                 os.remove(txt_path)
         time.sleep(2)
 
-    # 3. Файл мода
     file_sent = False
     if file_path and os.path.exists(file_path):
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
@@ -99,12 +96,11 @@ def send_to_telegram(game_name, title, version, img_url, txt_path, file_path, so
                 if doc_resp.status_code == 200 and doc_resp.json().get("ok"):
                     file_sent = True
             except Exception as e:
-                print(f"Ошибка отправки файла: {e}")
+                print(f"Ошибка отправки файла: {e}", flush=True)
             finally:
                 if os.path.exists(file_path):
                     os.remove(file_path)
 
-    # 4. Если скачивание не удалось или файл огромный
     if not file_sent:
         url_msg = f"https://api.telegram.org/bot{TG_TOKEN}/sendMessage"
         links_text = (
@@ -114,15 +110,18 @@ def send_to_telegram(game_name, title, version, img_url, txt_path, file_path, so
         try:
             requests.post(url_msg, data={"chat_id": TG_CHAT_ID, "text": links_text, "parse_mode": "HTML"}, timeout=15)
         except Exception as e:
-            print(f"Ошибка отправки фоллбека: {e}")
+            print(f"Ошибка отправки фоллбека: {e}", flush=True)
 
 def main():
     if not TG_TOKEN or not TG_CHAT_ID or not NEXUS_API_KEY:
-        print("Отсутствуют ключи Telegram или Nexus API!")
+        print("Отсутствуют ключи Telegram или Nexus API!", flush=True)
         return
 
     processed = get_processed()
     count = 0
+    
+    # 🔥 Создаем обходчик защиты, маскирующийся под Google Chrome на Windows
+    scraper = cloudscraper.create_scraper(browser={'browser': 'chrome', 'platform': 'windows', 'desktop': True})
 
     for category in CATEGORY_URLS:
         if count >= MAX_MODS_PER_RUN:
@@ -138,14 +137,12 @@ def main():
             print(f"👀 Проверяю страницу {page}...", flush=True)
 
             try:
-                # Парсим общую страницу Нексуса как обычный сайт
-                resp = requests.get(current_page_url, headers={'User-Agent': HEADERS['User-Agent']}, timeout=15)
-                
-                # ВОТ ЭТА СТРОЧКА покажет, пускает ли нас сайт:
+                # Используем скрейпер для пробития защиты
+                resp = scraper.get(current_page_url, timeout=15)
                 print(f"Ответ от www.nexusmods.com: {resp.status_code}", flush=True)
                 
                 if resp.status_code != 200:
-                    print("Сайт заблокировал чтение страницы!", flush=True)
+                    print("Cloudflare все еще не пускает, пробуем дальше...", flush=True)
                     break
 
                 soup = BeautifulSoup(resp.text, 'html.parser')
@@ -159,14 +156,12 @@ def main():
                     if any(bad in full_url.lower() for bad in BLACKLIST):
                         continue
                         
-                    # Вытаскиваем игру и ID мода из ссылки
                     match = re.match(r'https://www\.nexusmods\.com/([^/]+)/mods/(\d+)', full_url.split('?')[0])
                     if match:
                         clean_url = full_url.split('?')[0]
                         if clean_url not in mod_links:
                             mod_links.append((clean_url, match.group(1), match.group(2)))
 
-                # Поиск следующей страницы
                 next_page_url = None
                 for a in soup.find_all('a', href=True):
                     text = a.text.strip()
@@ -188,10 +183,12 @@ def main():
                         print(f"Обрабатываю: {game_domain} - мод {mod_id}", flush=True)
 
                         try:
-                            # 1. Запрашиваем инфу о моде через API Нексуса
+                            # 1. Запрашиваем инфу о моде через официальный API Нексуса (тут защита не ругается)
                             mod_detail_url = f"https://api.nexusmods.com/v1/games/{game_domain}/mods/{mod_id}.json"
-                            detail_resp = requests.get(mod_detail_url, headers=HEADERS)
+                            detail_resp = requests.get(mod_detail_url, headers=API_HEADERS)
+                            
                             if detail_resp.status_code != 200:
+                                print(f"API не отдал мод {mod_id}. Код: {detail_resp.status_code}", flush=True)
                                 continue
                                 
                             mod_data = detail_resp.json()
@@ -199,7 +196,6 @@ def main():
                             version = mod_data.get('version', '1.0')
                             picture_url = mod_data.get('picture_url')
                             
-                            # Перевод инструкции
                             raw_desc = mod_data.get('description', '')
                             clean_desc = clean_html(raw_desc)
                             translated_desc = translate_text(clean_desc)
@@ -211,7 +207,7 @@ def main():
                                 
                             # 2. Пытаемся забрать файл через API
                             files_url = f"https://api.nexusmods.com/v1/games/{game_domain}/mods/{mod_id}/files.json"
-                            files_resp = requests.get(files_url, headers=HEADERS)
+                            files_resp = requests.get(files_url, headers=API_HEADERS)
                             file_path = None
                             
                             if files_resp.status_code == 200:
@@ -222,7 +218,7 @@ def main():
                                     file_name = main_file.get('file_name', f"{safe_title}.zip")
                                     
                                     dl_link_url = f"https://api.nexusmods.com/v1/games/{game_domain}/mods/{mod_id}/files/{file_id}/download_link.json"
-                                    dl_resp = requests.get(dl_link_url, headers=HEADERS)
+                                    dl_resp = requests.get(dl_link_url, headers=API_HEADERS)
                                     
                                     if dl_resp.status_code == 200:
                                         links = dl_resp.json()
