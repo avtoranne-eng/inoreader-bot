@@ -78,7 +78,7 @@ HEADERS = {
 }
 
 PROCESSED_FILE = "nexus_processed.txt"
-MAX_MODS_PER_RUN = 10 # Лимит за 1 запуск, чтобы не злить API
+MAX_MODS_PER_RUN = 2 # Лимит за 1 запуск, чтобы не злить API
 
 def get_processed():
     if not os.path.exists(PROCESSED_FILE): 
