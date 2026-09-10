@@ -6,9 +6,9 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from deep_translator import GoogleTranslator
 
-# Ключи для AnnaModsBot
-TG_TOKEN = "TG_MODS_BOT_TOKEN"
-TG_CHAT_ID = "TG_CHAT_ID"
+# Правильный токен твоего бота для модов из GitHub Secrets
+TG_TOKEN = os.environ.get("TG_MODS_BOT_TOKEN")
+TG_CHAT_ID = os.environ.get("TG_CHAT_ID")
 
 CATEGORY_URLS = [
     "https://modgames.net/load/"
@@ -102,6 +102,10 @@ def send_to_telegram(game_name, title, img_url, txt_path, file_path, source_url,
             print(f"Ошибка отправки фоллбека: {e}", flush=True)
 
 def main():
+    if not TG_TOKEN or not TG_CHAT_ID:
+        print("ОШИБКА: Ключи Telegram не найдены!", flush=True)
+        return
+
     processed = get_processed()
     count = 0
 
@@ -135,6 +139,10 @@ def main():
                     if not full_url.startswith("https://modgames.net/load/"):
                         continue
                     if any(bad in full_url.lower() for bad in BLACKLIST):
+                        continue
+                    
+                    # 🔥 ЗАЩИТА: Игнорируем любые ссылки со знаком вопроса (страницы, фильтры)
+                    if '?' in full_url:
                         continue
                     
                     if re.search(r'\d+$', full_url) and full_url not in mod_links:
