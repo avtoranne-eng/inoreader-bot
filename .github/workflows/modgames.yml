@@ -1,4 +1,4 @@
-name: moddb Downloader
+name: Modgames Downloader
 
 on:
   workflow_dispatch:
@@ -28,13 +28,13 @@ jobs:
         env:
           TG_BOT_TOKEN: ${{ secrets.TG_MODS_BOT_TOKEN }}
           TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
-        run: python moddb_bot.py
+        run: python modgames_bot.py
         
       - name: Commit and push
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add moddb_processed.txt
-          git commit -m "Updated moddb processed list" || echo "Нет новых модов"
+          git add modgames_processed.txt
+          git commit -m "Updated modgames processed list" || echo "Нет новых модов"
           git pull --rebase origin main
           git push
