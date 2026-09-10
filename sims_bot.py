@@ -134,7 +134,7 @@ def main():
                 break
 
             try:
-                resp = requests.get(current_page_url, headers=HEADERS, timeout=15)
+                resp = requests.get(current_page_url, headers=HEADERS, timeout=45)
                 if resp.status_code != 200:
                     break
 
