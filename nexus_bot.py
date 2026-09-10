@@ -20,7 +20,7 @@ HEADERS = {
 }
 
 PROCESSED_FILE = "nexus_processed.txt"
-MAX_MODS_PER_RUN = 25
+MAX_MODS_PER_RUN = 5
 MAX_PAGES = 50000
 
 BLACKLIST = [
