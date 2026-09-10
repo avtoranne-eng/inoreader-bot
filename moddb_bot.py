@@ -21,8 +21,8 @@ HEADERS = {
 }
 
 PROCESSED_FILE = "moddb_processed.txt"
-MAX_MODS_PER_RUN = 10  # Оптимально, чтобы не словить временный бан по IP
-MAX_PAGES = 50
+MAX_MODS_PER_RUN = 2  # Оптимально, чтобы не словить временный бан по IP
+MAX_PAGES = 50000
 
 def get_processed():
     if not os.path.exists(PROCESSED_FILE): 
